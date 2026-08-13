@@ -1,0 +1,25 @@
+# Dependências
+node_modules/
+
+# Variáveis de ambiente (NUNCA envie isso)
+.env
+.env.local
+.env.*.local
+
+# Banco de dados
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+logs/
+*.log
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
