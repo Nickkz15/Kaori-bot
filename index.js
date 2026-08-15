@@ -568,4 +568,10 @@ const response = await ai.models.generateContent({
    LOGIN
    ========================================================= */
 
+if (!TOKEN || TOKEN.length < 50) {
+    console.error('❌ TOKEN inválido ou não definido.');
+    console.error('Defina a variável de ambiente TOKEN no painel do host (Railway/Render/etc).');
+    process.exit(1);
+}
+
 client.login(TOKEN);
