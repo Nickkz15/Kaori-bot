@@ -20,30 +20,36 @@ export async function executeAbrir(interaction) {
         });
     }
 
-    // Sorteio
-    const roll = Math.random();
-    let resultado = '';
-    let cor = 0xff4d6d;
+const roll = Math.random();
+let resultado = '';
+let cor = 0xff4d6d;
 
-    if (roll < 0.45) {
-        const coins = 40 + Math.floor(Math.random() * 80);
+    if (roll < 0.42) {
+        const coins = 40 + Math.floor(Math.random() * 80); // 40–120
         addCoins(interaction.user.id, coins);
         resultado = `Você encontrou **${coins}** Kaori Coins.`;
-    } else if (roll < 0.70) {
-        const xp = 20 + Math.floor(Math.random() * 40);
+    } else if (roll < 0.62) {
+        const xp = 15 + Math.floor(Math.random() * 25);
         addXP(interaction.user.id, xp);
         resultado = `Você ganhou **${xp} XP**.`;
+    } else if (roll < 0.78) {
+        addItem(interaction.user.id, 'bala', 1);
+        resultado = `Você ganhou uma **🍬 Bala**.`;
     } else if (roll < 0.88) {
         addItem(interaction.user.id, 'cafe', 1);
-        resultado = `Você ganhou um **☕ Café da Kaori**!`;
-    } else if (roll < 0.97) {
-        const coins = 300 + Math.floor(Math.random() * 200);
+        resultado = `Você ganhou um **☕ Café**.`;
+    } else if (roll < 0.94) {
+        addItem(interaction.user.id, 'chocolate', 1);
+        resultado = `Você ganhou um **🍫 Chocolate**.`;
+    } else if (roll < 0.98) {
+        const coins = 200 + Math.floor(Math.random() * 150); // 200–350
         addCoins(interaction.user.id, coins);
         resultado = `**Sorte grande!** +${coins} coins.`;
         cor = 0x57f287;
     } else {
-        resultado = `A caixa estava vazia.\n"Típico."`;
-        cor = 0x99aab5;
+        addItem(interaction.user.id, 'ticket', 1);
+        resultado = `**Jackpot!** 🎟️ Tíquete de Evento!`;
+        cor = 0xf1c40f;
     }
 
     updateUser(interaction.user.id, { last_box: String(agora) });

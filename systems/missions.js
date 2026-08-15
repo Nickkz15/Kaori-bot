@@ -1,17 +1,17 @@
 import { getUser, updateUser, addCoins, addXP, addItem } from '../database/database.js';
 
 const MISSOES_DIARIAS = [
-    { id: 'trabalhar_3', nome: 'Ajudante da Kaori', desc: 'Trabalhe 3 vezes', tipo: 'trabalhar', meta: 3, recompensa: { coins: 2000, xp: 30 } },
-    { id: 'presente_1', nome: 'Pequeno gesto', desc: 'Entregue 1 presente (/usar)', tipo: 'presente', meta: 1, recompensa: { coins: 1500, xp: 20 } },
-    { id: 'evento_1', nome: 'Companhia', desc: 'Participe de 1 evento', tipo: 'evento', meta: 1, recompensa: { coins: 2500, item: 'ticket' } },
-    { id: 'diario', nome: 'Rotina', desc: 'Pegue o diário', tipo: 'diario', meta: 1, recompensa: { coins: 800, xp: 15 } },
-    { id: 'interagir_2', nome: 'Conversa', desc: 'Use /interagir 2 vezes', tipo: 'interagir', meta: 2, recompensa: { coins: 1200, xp: 25 } }
+    { id: 'trabalhar_3', nome: 'Ajudante da Kaori', desc: 'Trabalhe 3 vezes', tipo: 'trabalhar', meta: 3, recompensa: { coins: 1250, xp: 40 } },
+    { id: 'presente_1', nome: 'Pequeno gesto', desc: 'Entregue 1 presente (/usar)', tipo: 'presente', meta: 1, recompensa: { coins: 400, xp: 25 } },
+    { id: 'evento_1', nome: 'Companhia', desc: 'Participe de 1 evento', tipo: 'evento', meta: 1, recompensa: { coins: 600, xp: 30, item: 'ticket' } },
+    { id: 'diario', nome: 'Rotina', desc: 'Pegue o diário', tipo: 'diario', meta: 1, recompensa: { coins: 450, xp: 20 } },
+    { id: 'interagir_2', nome: 'Conversa', desc: 'Use /interagir 2 vezes', tipo: 'interagir', meta: 2, recompensa: { coins: 350, xp: 25 } }
 ];
 
 const MISSOES_SEMANAIS = [
-    { id: 'eventos_5', nome: 'Rotina a dois', desc: 'Faça 5 eventos', tipo: 'evento', meta: 5, recompensa: { coins: 10000, item: 'ticket_dourado' } },
-    { id: 'presentes_5', nome: 'Generoso', desc: 'Entregue 5 presentes', tipo: 'presente', meta: 5, recompensa: { coins: 8000, xp: 100 } },
-    { id: 'trabalhar_15', nome: 'Dedicação', desc: 'Trabalhe 15 vezes', tipo: 'trabalhar', meta: 15, recompensa: { coins: 12000 } }
+    { id: 'eventos_5', nome: 'Rotina a dois', desc: 'Faça 5 eventos', tipo: 'evento', meta: 5, recompensa: { coins: 3500, item: 'ticket_dourado' } },
+    { id: 'presentes_5', nome: 'Generoso', desc: 'Entregue 5 presentes', tipo: 'presente', meta: 5, recompensa: { coins: 3000, xp: 80 } },
+    { id: 'trabalhar_15', nome: 'Dedicação', desc: 'Trabalhe 15 vezes', tipo: 'trabalhar', meta: 15, recompensa: { coins: 4000, xp: 100 } }
 ];
 
 function getMissaoState(userId) {

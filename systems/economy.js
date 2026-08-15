@@ -192,9 +192,11 @@ export function dailyReward(userId) {
     else if (streak >= 7) mult = 1.5;
     else if (streak >= 3) mult = 1.2;
 
-    const base = 250 + Math.floor(user.level * 15);
-    const random = Math.floor(Math.random() * 200);
+    const base = 600 + Math.floor(user.level * 40);
+    const random = Math.floor(Math.random() * 400);
     const recompensa = Math.floor((base + random) * mult);
+
+const xpResult = addXP(userId, 20 + Math.floor(user.level * 2));
 
     updateUser(userId, {
         coins: user.coins + recompensa,
@@ -211,7 +213,7 @@ export function work(userId) {
     const user = getUser(userId);
     const agora = Date.now();
     const ultimo = user.last_work ? Number(user.last_work) : 0;
-    const cooldown = 25 * 60 * 1000;
+    const cooldown = 45 * 60 * 1000; // 45 minutos
 
     if (agora - ultimo < cooldown) {
         const restante = Math.ceil((cooldown - (agora - ultimo)) / 60000);
@@ -219,17 +221,17 @@ export function work(userId) {
     }
 
     const trabalhos = [
-        { nome: 'organizar arquivos da Kaori', min: 500, max: 1200 },
-        { nome: 'ficar de olho no servidor', min: 600, max: 1400 },
-        { nome: 'limpar spam do chat', min: 450, max: 1100 },
-        { nome: 'testar comandos novos', min: 700, max: 1500 }
-    ];
+        { nome: 'organizar arquivos da Kaori', min: 250, max: 400 },
+        { nome: 'ficar de olho no servidor', min: 280, max: 450 },
+        { nome: 'limpar spam do chat', min: 250, max: 420 },
+        { nome: 'testar comandos novos', min: 300, max: 500 }
+];
 
     const t = trabalhos[Math.floor(Math.random() * trabalhos.length)];
-    const ganho = Math.floor(Math.random() * (t.max - t.min + 1)) + t.min + Math.floor(user.level * 20);
+    const ganho = Math.floor(Math.random() * (t.max - t.min + 1)) + t.min + Math.floor(user.level * 5);
 
     updateUser(userId, { coins: user.coins + ganho, last_work: String(agora) });
-    const xpResult = addXP(userId, 15 + Math.floor(user.level * 1.5));
+    const xpResult = addXP(userId, 12 + Math.floor(user.level * 1.5));
     return { ok: true, trabalho: t.nome, ganho, xpResult, novoSaldo: user.coins + ganho };
 }
 

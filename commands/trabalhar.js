@@ -26,7 +26,7 @@ export async function executeTrabalhar(interaction) {
             levelUpText +
             `\n\n"Não fique esperando elogio."`
         )
-        .setFooter({ text: 'Cooldown de 25 minutos' });
+        .setFooter({ text: 'Cooldown de 45 minutos' })
 
     await interaction.reply({ embeds: [embed] });
 
