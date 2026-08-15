@@ -192,8 +192,8 @@ export function dailyReward(userId) {
     else if (streak >= 7) mult = 1.5;
     else if (streak >= 3) mult = 1.2;
 
-    const base = 1000 + Math.floor(user.level * 50);
-    const random = Math.floor(Math.random() * 1500);
+    const base = 250 + Math.floor(user.level * 15);
+    const random = Math.floor(Math.random() * 200);
     const recompensa = Math.floor((base + random) * mult);
 
     updateUser(userId, {
@@ -203,7 +203,7 @@ export function dailyReward(userId) {
         last_daily_date: hoje
     });
 
-    const xpResult = addXP(userId, 25 + Math.floor(user.level * 2));
+    const xpResult = addXP(userId, 10 + Math.floor(user.level * 1.5));
     return { ok: true, recompensa, streak, multiplicador: mult, xpResult, novoSaldo: user.coins + recompensa };
 }
 
