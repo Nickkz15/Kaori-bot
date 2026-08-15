@@ -151,27 +151,20 @@ client.once(Events.ClientReady, async (bot) => {
                     pagarCommand.toJSON(),
                     rankCommand.toJSON(),
                     lojaCommand.toJSON(),
+                    comprarCommand.toJSON(),
+                    inventarioCommand.toJSON(),
+                    usarCommand.toJSON(),
                     abrirCommand.toJSON(),
-                    comprarCommand.toJSON(),
-                    lojaCommand.toJSON(),
-                    comprarCommand.toJSON(),
-                    inventarioCommand.toJSON(),
-                    usarCommand.toJSON(),
-                    lojaCommand.toJSON(),
-                    comprarCommand.toJSON(),
-                    inventarioCommand.toJSON(),
-                    usarCommand.toJSON(),
                     eventoCommand.toJSON(),
                     missaoCommand.toJSON(),
                     interagirCommand.toJSON(),
                     segredoCommand.toJSON(),
                     colecaoCommand.toJSON(),
-                    resetarCommand.toJSON(),
-                    ajudaCommand.toJSON(),
                     presenteCommand.toJSON(),
                     relacionamentoCommand.toJSON(),
-                    conquistasCommand.toJSON()
-                    // Quando criar mais comandos (saldo, diario, etc), adicione aqui
+                    conquistasCommand.toJSON(),
+                    resetarCommand.toJSON(),
+                    ajudaCommand.toJSON()
                 ]
             }
         );
