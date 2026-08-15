@@ -23,11 +23,7 @@ import {
     PERSONALITY
 } from './config/kaori.js';
 
-import {
-    ai,
-    inicializarPersonalidade,
-    obterCachePersonalidade
-} from './systems/ai.js';
+import { ai } from './systems/ai.js';
 import { buscarGifKaori } from './systems/nekos.js';
 
 // ====================== COMANDOS ======================
@@ -133,11 +129,6 @@ client.once(Events.ClientReady, async (bot) => {
     console.log('================================');
     console.log(`🤖 Kaori online como ${bot.user.tag}`);
     console.log('================================');
-
-// ---------- PERSONALIDADE ----------
-
-// dentro do ClientReady:
-await inicializarPersonalidade();
 
     // ---------- Registrar comandos ----------
     const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -336,7 +327,7 @@ if (interaction.commandName === 'kaori') {
     if (interaction.commandName === 'segredo') return executeSegredo(interaction);
 
     if (interaction.commandName === 'resetar-perfil') return executeResetar(interaction);
-    
+
     if (interaction.commandName === 'ajuda') return executeAjuda(interaction);
 
     // ---------- /sorte ----------
@@ -497,45 +488,25 @@ Status: ${rel.status}
     // Se der erro, continua sem o relacionamento
 }
 
-const cachePersonalidade = await obterCachePersonalidade();
-
 const contextoAtual =
     `USUÁRIO ATUAL:\n${contextoUsuario}\n\n` +
     contextoRelacionamento;
 
-
 const response = await ai.models.generateContent({
-
     model: AI_MODEL,
-
     contents: [
-
         ...historyGemini,
-
         {
             role: 'user',
-
-            parts: [
-                {
-                    text:
-                        contextoAtual +
-                        `\n\nMENSAGEM:\n${pergunta}`
-                }
-            ]
+            parts: [{
+                text: contextoAtual + `\n\nMENSAGEM:\n${pergunta}`
+            }]
         }
-
     ],
-
     config: {
-
-        cachedContent:
-            cachePersonalidade,
-
-        maxOutputTokens:
-            MAX_OUTPUT_TOKENS
-
+        systemInstruction: PERSONALITY,
+        maxOutputTokens: MAX_OUTPUT_TOKENS
     }
-
 });
 
                 resposta = response.text?.trim();
