@@ -45,7 +45,7 @@ export async function executeSorte(interaction) {
             `**${valor}%**\n\n` +
             `"${fraseSorte(tipo, valor)}"`
         )
-        .setFooter({ text: 'Muda todo dia • zero IA' });
+        .setFooter({ text: 'Muda todo dia • Allied' });
 
     await interaction.reply({ embeds: [embed] });
 }

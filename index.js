@@ -23,7 +23,11 @@ import {
     PERSONALITY
 } from './config/kaori.js';
 
-import { ai } from './systems/ai.js';
+import {
+    ai,
+    inicializarPersonalidade,
+    obterCachePersonalidade
+} from './systems/ai.js';
 import { buscarGifKaori } from './systems/nekos.js';
 
 // ====================== COMANDOS ======================
@@ -42,6 +46,16 @@ import { lojaCommand, comprarCommand, executeLoja, executeComprar } from './comm
 import { relacionamentoCommand, executeRelacionamento } from './commands/relacionamento.js';
 import { conquistasCommand, executeConquistas } from './commands/conquistas.js';
 import { abrirCommand, executeAbrir } from './commands/abrir.js';
+import { inventarioCommand, executeInventario } from './commands/inventario.js';
+import { usarCommand, executeUsar } from './commands/usar.js';
+import { eventoCommand, executeEvento } from './commands/evento.js';
+import { missaoCommand, executeMissao } from './commands/missao.js';
+import { interagirCommand, executeInteragir } from './commands/interagir.js';
+import { colecaoCommand, executeColecao } from './commands/colecao.js';
+import { presenteCommand, executePresente } from './commands/presente.js';
+import { segredoCommand, executeSegredo } from './commands/segredo.js';
+import { resetarCommand, executeResetar } from './commands/resetar.js';
+import { ajudaCommand, executeAjuda } from './commands/ajuda.js';
 
 /* =========================================================
    DISCORD CLIENT
@@ -120,6 +134,11 @@ client.once(Events.ClientReady, async (bot) => {
     console.log(`🤖 Kaori online como ${bot.user.tag}`);
     console.log('================================');
 
+// ---------- PERSONALIDADE ----------
+
+// dentro do ClientReady:
+await inicializarPersonalidade();
+
     // ---------- Registrar comandos ----------
     const rest = new REST({ version: '10' }).setToken(TOKEN);
 
@@ -143,6 +162,22 @@ client.once(Events.ClientReady, async (bot) => {
                     lojaCommand.toJSON(),
                     abrirCommand.toJSON(),
                     comprarCommand.toJSON(),
+                    lojaCommand.toJSON(),
+                    comprarCommand.toJSON(),
+                    inventarioCommand.toJSON(),
+                    usarCommand.toJSON(),
+                    lojaCommand.toJSON(),
+                    comprarCommand.toJSON(),
+                    inventarioCommand.toJSON(),
+                    usarCommand.toJSON(),
+                    eventoCommand.toJSON(),
+                    missaoCommand.toJSON(),
+                    interagirCommand.toJSON(),
+                    segredoCommand.toJSON(),
+                    colecaoCommand.toJSON(),
+                    resetarCommand.toJSON(),
+                    ajudaCommand.toJSON(),
+                    presenteCommand.toJSON(),
                     relacionamentoCommand.toJSON(),
                     conquistasCommand.toJSON()
                     // Quando criar mais comandos (saldo, diario, etc), adicione aqui
@@ -271,6 +306,38 @@ if (interaction.commandName === 'kaori') {
     if (interaction.commandName === 'relacionamento') return executeRelacionamento(interaction);
 
     if (interaction.commandName === 'conquistas') return executeConquistas(interaction);
+
+    if (interaction.commandName === 'loja') return executeLoja(interaction);
+
+    if (interaction.commandName === 'comprar') return executeComprar(interaction);
+
+    if (interaction.commandName === 'inventario') return executeInventario(interaction);
+
+    if (interaction.commandName === 'usar') return executeUsar(interaction);
+
+    if (interaction.commandName === 'loja') return executeLoja(interaction);
+
+    if (interaction.commandName === 'comprar') return executeComprar(interaction);
+
+    if (interaction.commandName === 'inventario') return executeInventario(interaction);
+
+    if (interaction.commandName === 'usar') return executeUsar(interaction);
+
+    if (interaction.commandName === 'evento') return executeEvento(interaction);
+
+    if (interaction.commandName === 'missao') return executeMissao(interaction);
+
+    if (interaction.commandName === 'interagir') return executeInteragir(interaction);
+
+    if (interaction.commandName === 'colecao') return executeColecao(interaction);
+
+    if (interaction.commandName === 'presente') return executePresente(interaction);
+
+    if (interaction.commandName === 'segredo') return executeSegredo(interaction);
+
+    if (interaction.commandName === 'resetar-perfil') return executeResetar(interaction);
+    
+    if (interaction.commandName === 'ajuda') return executeAjuda(interaction);
 
     // ---------- /sorte ----------
     if (interaction.commandName === 'sorte') {
@@ -430,16 +497,45 @@ Status: ${rel.status}
     // Se der erro, continua sem o relacionamento
 }
 
+const cachePersonalidade = await obterCachePersonalidade();
+
+const contextoAtual =
+    `USUÁRIO ATUAL:\n${contextoUsuario}\n\n` +
+    contextoRelacionamento;
+
+
 const response = await ai.models.generateContent({
+
     model: AI_MODEL,
+
     contents: [
+
         ...historyGemini,
-        { role: 'user', parts: [{ text: pergunta }] }
+
+        {
+            role: 'user',
+
+            parts: [
+                {
+                    text:
+                        contextoAtual +
+                        `\n\nMENSAGEM:\n${pergunta}`
+                }
+            ]
+        }
+
     ],
+
     config: {
-        systemInstruction: PERSONALITY + `\n\nUSUÁRIO ATUAL:\n` + contextoUsuario + contextoRelacionamento,
-        maxOutputTokens: MAX_OUTPUT_TOKENS
+
+        cachedContent:
+            cachePersonalidade,
+
+        maxOutputTokens:
+            MAX_OUTPUT_TOKENS
+
     }
+
 });
 
                 resposta = response.text?.trim();

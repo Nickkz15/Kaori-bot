@@ -29,17 +29,41 @@ export async function executeDiario(interaction) {
             `\n\nNovo saldo: **${result.novoSaldo.toLocaleString('pt-BR')}**\n\n` +
             `"Tome. Não gaste tudo de uma vez."`
         )
-        .setFooter({ text: 'Volte amanhã • zero Gemini' });
+        .setFooter({ text: 'Volte amanhã • Allied' });
 
     await interaction.reply({ embeds: [embed] });
 
-    // Notificação de level up separada (estilo Loritta)
     if (result.xpResult?.leveledUp) {
         try {
             const { enviarLevelUp } = await import('../systems/notifications.js');
             await enviarLevelUp(interaction, result.xpResult.level, result.xpResult.levelsGained);
-        } catch (err) {
-            console.error('Erro ao enviar level up:', err.message);
-        }
+        } catch {}
     }
+
+    // Missão + Presente secreto
+    try {
+        const { progressoMissao } = await import('../systems/missions.js');
+        const completadas = progressoMissao(interaction.user.id, 'diario', 1);
+        if (completadas.length > 0) {
+            await interaction.followUp({
+                content: `📋 Missão completa!\n${completadas.map(m => `✅ **${m.nome}**`).join('\n')}`,
+                ephemeral: true
+            });
+        }
+    } catch {}
+
+    try {
+        const { tentarPresenteSecreto } = await import('../systems/secretGifts.js');
+        const secreto = tentarPresenteSecreto(interaction.user.id);
+        if (secreto) {
+            await interaction.followUp({
+                embeds: [{
+                    color: 0x9b59b6,
+                    title: '🎁 Presente Secreto',
+                    description: `Kaori deixou algo pra você...\n\n**${secreto.item.nome}**\n${secreto.frase}`
+                }],
+                ephemeral: true
+            });
+        }
+    } catch {}
 }

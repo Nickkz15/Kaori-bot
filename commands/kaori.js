@@ -179,7 +179,7 @@ export function criarEmbedAcao(autor, alvo, frase, gifUrl) {
         .setColor(0xff4d6d)
         .setDescription(frase)
         .setImage(gifUrl)
-        .setFooter({ text: 'Kaori • zero Gemini' });
+        .setFooter({ text: 'Kaori • Allied' });
 
     return embed;
 }
