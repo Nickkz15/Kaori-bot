@@ -181,7 +181,9 @@ export function dailyReward(userId) {
     const hoje = new Date().toISOString().slice(0, 10);
     const ontem = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
-    if (user.daily === hoje) return { ok: false, msg: 'Você já pegou o diário hoje.\nVolta amanhã.' };
+    if (user.daily === hoje) {
+        return { ok: false, msg: 'Você já pegou o diário hoje.\nVolta amanhã.' };
+    }
 
     let streak = user.daily_streak || 0;
     if (user.last_daily_date === ontem) streak += 1;
@@ -196,8 +198,6 @@ export function dailyReward(userId) {
     const random = Math.floor(Math.random() * 400);
     const recompensa = Math.floor((base + random) * mult);
 
-const xpResult = addXP(userId, 20 + Math.floor(user.level * 2));
-
     updateUser(userId, {
         coins: user.coins + recompensa,
         daily: hoje,
@@ -205,34 +205,64 @@ const xpResult = addXP(userId, 20 + Math.floor(user.level * 2));
         last_daily_date: hoje
     });
 
-    const xpResult = addXP(userId, 10 + Math.floor(user.level * 1.5));
-    return { ok: true, recompensa, streak, multiplicador: mult, xpResult, novoSaldo: user.coins + recompensa };
+    const xpResult = addXP(userId, 20 + Math.floor(user.level * 2));
+
+    return {
+        ok: true,
+        recompensa,
+        streak,
+        multiplicador: mult,
+        xpResult,
+        novoSaldo: user.coins + recompensa
+    };
 }
 
 export function work(userId) {
     const user = getUser(userId);
     const agora = Date.now();
     const ultimo = user.last_work ? Number(user.last_work) : 0;
-    const cooldown = 45 * 60 * 1000; // 45 minutos
+    const cooldown = 45 * 60 * 1000; // 45 min
 
     if (agora - ultimo < cooldown) {
         const restante = Math.ceil((cooldown - (agora - ultimo)) / 60000);
-        return { ok: false, msg: `Você ainda está cansado.\nEspere mais **${restante} minuto${restante > 1 ? 's' : ''}**.` };
+
+        return {
+            ok: false,
+            msg: `Você ainda está cansado.\nEspere mais **${restante} minuto${restante > 1 ? 's' : ''}**.`
+        };
     }
 
     const trabalhos = [
-        { nome: 'organizar arquivos da Kaori', min: 250, max: 400 },
-        { nome: 'ficar de olho no servidor', min: 280, max: 450 },
-        { nome: 'limpar spam do chat', min: 250, max: 420 },
-        { nome: 'testar comandos novos', min: 300, max: 500 }
-];
+        { nome: 'organizar arquivos da Kaori', min: 350, max: 400 },
+        { nome: 'ficar de olho no servidor', min: 380, max: 450 },
+        { nome: 'limpar spam do chat', min: 350, max: 420 },
+        { nome: 'testar comandos novos', min: 400, max: 500 }
+    ];
 
     const t = trabalhos[Math.floor(Math.random() * trabalhos.length)];
-    const ganho = Math.floor(Math.random() * (t.max - t.min + 1)) + t.min + Math.floor(user.level * 5);
 
-    updateUser(userId, { coins: user.coins + ganho, last_work: String(agora) });
-    const xpResult = addXP(userId, 12 + Math.floor(user.level * 1.5));
-    return { ok: true, trabalho: t.nome, ganho, xpResult, novoSaldo: user.coins + ganho };
+    const ganho =
+        Math.floor(Math.random() * (t.max - t.min + 1)) +
+        t.min +
+        Math.floor(user.level * 5);
+
+    updateUser(userId, {
+        coins: user.coins + ganho,
+        last_work: String(agora)
+    });
+
+    const xpResult = addXP(
+        userId,
+        12 + Math.floor(user.level * 1.5)
+    );
+
+    return {
+        ok: true,
+        trabalho: t.nome,
+        ganho,
+        xpResult,
+        novoSaldo: user.coins + ganho
+    };
 }
 
 export function transferir(fromId, toId, quantidade) {
