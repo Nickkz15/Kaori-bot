@@ -17,7 +17,7 @@ export function usarItem(userId, itemId) {
 
     removeItem(userId, itemId, 1);
 
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     const efeito = item.efeito || {};
 
     const novo = {
@@ -32,7 +32,7 @@ export function usarItem(userId, itemId) {
     if (itemId === 'cartinha') extras.cartinhas = (user.cartinhas || 0) + 1;
     if (item.tipo === 'presente') extras.presentes = (user.presentes || 0) + 1;
 
-    updateUser(userId, { ...novo, ...extras });
+    updateUser(guildId, userId, { ...novo, ...extras });
 
     let frase;
     if (itemId === 'cartinha' && typeof item.frases === 'object') {

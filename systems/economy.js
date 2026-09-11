@@ -177,7 +177,7 @@ export function tempoRestanteLoja() {
 }
 
 export function dailyReward(userId) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     const hoje = new Date().toISOString().slice(0, 10);
     const ontem = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
@@ -198,7 +198,7 @@ export function dailyReward(userId) {
     const random = Math.floor(Math.random() * 400);
     const recompensa = Math.floor((base + random) * mult);
 
-    updateUser(userId, {
+    updateUser(guildId, userId, {
         coins: user.coins + recompensa,
         daily: hoje,
         daily_streak: streak,
@@ -218,7 +218,7 @@ export function dailyReward(userId) {
 }
 
 export function work(userId) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     const agora = Date.now();
     const ultimo = user.last_work ? Number(user.last_work) : 0;
     const cooldown = 45 * 60 * 1000; // 45 min
@@ -246,7 +246,7 @@ export function work(userId) {
         t.min +
         Math.floor(user.level * 5);
 
-    updateUser(userId, {
+    updateUser(guildId, userId, {
         coins: user.coins + ganho,
         last_work: String(agora)
     });
@@ -268,7 +268,7 @@ export function work(userId) {
 export function transferir(fromId, toId, quantidade) {
     if (quantidade <= 0) return { ok: false, msg: 'Quantidade inválida.' };
     if (fromId === toId) return { ok: false, msg: 'Você não pode pagar a si mesmo.' };
-    const fromUser = getUser(fromId);
+    const fromUser = getUser(guildId, fromId);
     if (fromUser.coins < quantidade) return { ok: false, msg: `Você só tem **${fromUser.coins}** Kaori Coins.` };
     removeCoins(fromId, quantidade);
     addCoins(toId, quantidade);

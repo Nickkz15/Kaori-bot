@@ -52,7 +52,7 @@ const SECRETO = {
 };
 
 export function listarAcoes(userId) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     const lista = { ...ACOES };
     if (user.afinidade >= SECRETO.requisito.afinidade && user.carinho >= SECRETO.requisito.carinho) {
         lista.segredo = {
@@ -65,7 +65,7 @@ export function listarAcoes(userId) {
 }
 
 export function interagir(userId, acaoId) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     const agora = Date.now();
     const ultimo = user.last_interagir ? Number(user.last_interagir) : 0;
 
@@ -87,7 +87,7 @@ export function interagir(userId, acaoId) {
         energia: Math.min(100, Math.max(0, (user.energia || 70) + (efeito.energia || 0))),
         last_interagir: String(agora)
     };
-    updateUser(userId, novo);
+    updateUser(guildId, userId, novo);
 
     let frase;
     if (typeof acao.frases === 'object' && !Array.isArray(acao.frases)) {

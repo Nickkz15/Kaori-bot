@@ -94,7 +94,7 @@ const EVENTOS = [
 ];
 
 export function listarEventosDisponiveis(userId) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     return EVENTOS.filter(e => user.afinidade >= e.minAfinidade);
 }
 
@@ -107,7 +107,7 @@ export function iniciarEvento(userId, alvoId, ticketTipo = 'ticket') {
             : 'Você precisa de um 🎟️ Tíquete de Evento.\nCompre na `/loja`.' };
     }
 
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     let pool = EVENTOS.filter(e => user.afinidade >= e.minAfinidade);
 
     // Tíquete dourado favorece eventos especiais
@@ -146,12 +146,12 @@ export function iniciarEvento(userId, alvoId, ticketTipo = 'ticket') {
         eventos: (user.eventos || 0) + 1
     };
 
-    updateUser(userId, novo);
+    updateUser(guildId, userId, novo);
 
     // Pequeno bônus de coins/XP
     const bonusCoins = 100 + Math.floor(diversao * 3);
-    addCoins(userId, bonusCoins);
-    addXP(userId, 10 + Math.floor(diversao / 10));
+    addCoins(guildId, userId, bonusCoins);
+    addXP(guildId, userId, 10 + Math.floor(diversao / 10));
 
     return {
         ok: true,

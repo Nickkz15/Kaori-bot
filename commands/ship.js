@@ -53,17 +53,37 @@ export async function executeShip(interaction) {
 
     // Integração com conquistas (depois da resposta)
     try {
-        const { incrementAction } = await import('../database/database.js');
-        incrementAction(interaction.user.id, 'ship');
+    const { incrementAction } = await import('../database/database.js');
 
-        const { checkAndUnlock } = await import('../systems/achievements.js');
-        const novas = checkAndUnlock(interaction.user.id, { action: 'ship' });
+    await incrementAction(
+        interaction.guildId,
+        interaction.user.id,
+        'ship'
+    );
 
-        if (novas.length > 0) {
-            const { enviarConquista } = await import('../systems/notifications.js');
-            await enviarConquista(interaction, novas);
+    const { checkAndUnlock } = await import('../systems/achievements.js');
+
+    const novas = await checkAndUnlock(
+        interaction.user.id,
+        {
+            action: 'ship'
         }
-    } catch (error) {
-        console.error('Erro ao processar conquista do /ship:', error.message);
+    );
+
+    if (novas.length > 0) {
+        const { enviarConquista } =
+            await import('../systems/notifications.js');
+
+        await enviarConquista(
+            interaction,
+            novas
+        );
+    }
+
+} catch (error) {
+    console.error(
+        'Erro ao processar conquista do /ship:',
+        error.message
+        );
     }
 }

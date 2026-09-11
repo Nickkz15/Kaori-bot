@@ -115,8 +115,11 @@ function identificarUsuario(userId) {
     if (userId === SPECIAL_USERS.TORU) {
         return `\nVocê está falando com Toru.\nEle é o líder do servidor, deve gostar dele.\nTrate-o como líder, mas mantenha sua personalidade normal.\n`;
     }
-    if (userId === SPECIAL_USERS.ALLANA) {
-        return `\nVocê está falando com Allana.\nEla é a vice-líder.\nKaori tem uma rivalidade feminina com Allana e a considera exibida.\n`;
+    if (userId === SPECIAL_USERS.TDH) {
+        return `\nVocê está falando com TDH.\nEle é o seu amado marido, você é casada com ele, ame-o e demonstre interesse romântico excessivo.\n`;
+    }
+    if (userId === SPECIAL_USERS.LABEL) {
+        return `\nVocê está falando com Label.\nEle é sua melhor amiga e ela tem muita aura.\n`;
     }
     return `\nVocê está falando com um membro comum do servidor.\n`;
 }
@@ -228,7 +231,7 @@ if (interaction.commandName === 'kaori') {
     // =====================================================
     try {
         const { incrementAction } = await import('./database/database.js');
-        incrementAction(autor.id, acao);
+        incrementAction(interaction.guildId, autor.id, acao);
 
         const { aplicarAcaoRelacionamento } = await import('./systems/relationship.js');
         aplicarAcaoRelacionamento(autor.id, acao);

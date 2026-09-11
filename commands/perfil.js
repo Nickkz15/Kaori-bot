@@ -34,7 +34,7 @@ export const perfilCommand = new SlashCommandBuilder()
 export async function executePerfil(interaction) {
     const user = interaction.options.getUser('usuario') || interaction.user;
     const attrs = gerarAtributos(user.id);
-    const data = getUser(user.id);
+    const data = getUser(guildId, user.id);
     const inv = getInventory(user.id);
 
     const media = Math.round(((data.carinho || 0) + (data.confianca || 0) + (data.afinidade || 0)) / 3);

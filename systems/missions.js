@@ -15,10 +15,10 @@ const MISSOES_SEMANAIS = [
 ];
 
 function getMissaoState(userId) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     if (!user.missoes) {
         user.missoes = { diaria: null, semanal: null, progresso: {}, resetDiario: null, resetSemanal: null };
-        updateUser(userId, { missoes: user.missoes });
+        updateUser(guildId, userId, { missoes: user.missoes });
     }
     return user.missoes;
 }
@@ -46,7 +46,7 @@ export function garantirMissoes(userId) {
         state.progresso[m.id] = 0;
         state.resetSemanal = sem;
     }
-    updateUser(userId, { missoes: state });
+    updateUser(guildId, userId, { missoes: state });
     return state;
 }
 
@@ -69,7 +69,7 @@ export function progressoMissao(userId, tipo, quantidade = 1) {
             completadas.push(m);
         }
     }
-    updateUser(userId, { missoes: state });
+    updateUser(guildId, userId, { missoes: state });
     return completadas;
 }
 

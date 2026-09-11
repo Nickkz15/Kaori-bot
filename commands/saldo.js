@@ -8,7 +8,7 @@ export const saldoCommand = new SlashCommandBuilder()
 
 export async function executeSaldo(interaction) {
     const user = interaction.options.getUser('usuario') || interaction.user;
-    const data = getUser(user.id);
+    const data = getUser(guildId, user.id);
 
     const embed = new EmbedBuilder()
         .setColor(0xff4d6d)

@@ -52,7 +52,7 @@ export const PRESENTES_SECRETOS = {
 const CHANCE_BASE = 4;
 
 export function tentarPresenteSecreto(userId) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
 
     let chance = CHANCE_BASE;
     if (user.afinidade >= 80) chance += 4;
@@ -78,7 +78,7 @@ export function tentarPresenteSecreto(userId) {
     const presente = PRESENTES_SECRETOS[escolhido];
 
     addItem(userId, escolhido, 1);
-    updateUser(userId, {
+    updateUser(guildId, userId, {
         presentes_secretos: (user.presentes_secretos || 0) + 1
     });
 
@@ -93,7 +93,7 @@ export function usarChave(userId) {
     const tem = inv.find(i => i.item === 'chave' && i.quantidade > 0);
     if (!tem) return { ok: false, msg: 'Você não tem a 🔑 Chave Misteriosa.' };
 
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     if (user.afinidade < 60) {
         return { ok: false, msg: '"Ainda não. Você não está pronto."' };
     }

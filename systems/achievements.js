@@ -60,7 +60,7 @@ export function checkAndUnlock(userId, context = {}) {
 
     // ----- Conquistas baseadas em ações -----
     if (action === 'hug') {
-        const count = getActionCount(userId, 'hug');
+        const count = getActionCount(guildId, userId, 'hug');
         if (count === 1 && unlockAchievement(userId, 'primeiro_abraco')) {
             unlocked.push('primeiro_abraco');
         }
@@ -70,21 +70,21 @@ export function checkAndUnlock(userId, context = {}) {
     }
 
     if (action === 'slap') {
-        const count = getActionCount(userId, 'slap');
+        const count = getActionCount(guildId, userId, 'slap');
         if (count >= 25 && unlockAchievement(userId, 'problematico')) {
             unlocked.push('problematico');
         }
     }
 
     if (action === 'ship') {
-        const count = getActionCount(userId, 'ship');
+        const count = getActionCount(guildId, userId, 'ship');
         if (count >= 50 && unlockAchievement(userId, 'casamenteiro')) {
             unlocked.push('casamenteiro');
         }
     }
 
     // ----- Conquistas baseadas em status do usuário -----
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
 
     if (user.afinidade >= 80 && unlockAchievement(userId, 'favorito')) {
         unlocked.push('favorito');

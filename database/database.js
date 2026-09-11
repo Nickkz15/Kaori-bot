@@ -29,7 +29,7 @@ function save(data) {
 
 let db = load();
 
-export function getUser(userId) {
+export function getUser(guildId, userId) {
     if (!db.users[userId]) {
         db.users[userId] = {
             user_id: userId,
@@ -57,20 +57,20 @@ export function getUser(userId) {
 }
 
 export function updateUser(userId, data) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     Object.assign(user, data);
     save(db);
 }
 
 export function addCoins(userId, amount) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     user.coins = Math.max(0, user.coins + amount);
     save(db);
     return user.coins;
 }
 
 export function removeCoins(userId, amount) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     if (user.coins < amount) return false;
     user.coins -= amount;
     save(db);
@@ -78,7 +78,7 @@ export function removeCoins(userId, amount) {
 }
 
 export function addXP(userId, amount) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     let xp = user.xp + amount;
     let level = user.level;
     let leveledUp = false;
@@ -105,7 +105,7 @@ export function incrementAction(userId, action) {
     return db.action_counts[userId][action];
 }
 
-export function getActionCount(userId, action) {
+export function getActionCount(guildId, userId, action) {
     return db.action_counts[userId]?.[action] || 0;
 }
 
@@ -167,7 +167,7 @@ export function buyFromShop(userId, itemId) {
     const slot = shop.items.find(i => i.id === itemId);
     if (!slot || slot.estoque <= 0) return { ok: false, msg: 'Item esgotado ou não está na loja agora.' };
 
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     if (user.coins < slot.preco) return { ok: false, msg: `Você precisa de **${slot.preco}** coins. Tem **${user.coins}**.` };
 
     removeCoins(userId, slot.preco);

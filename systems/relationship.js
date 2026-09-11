@@ -17,7 +17,7 @@ export function aplicarAcaoRelacionamento(userId, acao) {
     const mods = MODIFICADORES[acao];
     if (!mods) return null;
 
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
 
     const novo = {
         carinho: Math.max(0, Math.min(100, user.carinho + (mods.carinho || 0))),
@@ -25,12 +25,12 @@ export function aplicarAcaoRelacionamento(userId, acao) {
         afinidade: Math.max(0, Math.min(100, user.afinidade + (mods.afinidade || 0)))
     };
 
-    updateUser(userId, novo);
+    updateUser(guildId, userId, novo);
     return novo;
 }
 
 export function getRelacionamento(userId) {
-    const user = getUser(userId);
+    const user = getUser(guildId, userId);
     const media = Math.round((user.carinho + user.confianca + user.afinidade) / 3);
 
     let status = 'Estranho';
