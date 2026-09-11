@@ -6,7 +6,12 @@ export const diarioCommand = new SlashCommandBuilder()
     .setDescription('Recebe sua recompensa diária da Kaori');
 
 export async function executeDiario(interaction) {
-    const result = dailyReward(interaction.user.id);
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
+    }
+
+    const result = await dailyReward(guildId, interaction.user.id);
 
     if (!result.ok) {
         return interaction.reply({ content: result.msg, ephemeral: true });
@@ -15,9 +20,6 @@ export async function executeDiario(interaction) {
     let extra = '';
     if (result.streak >= 3) {
         extra += `\n🔥 **Streak: ${result.streak} dias** (${Math.round((result.multiplicador - 1) * 100)}% de bônus)`;
-    }
-    if (result.levelRewards?.length > 0) {
-        extra += `\n\n🎁 **Recompensas de nível:**\n${result.levelRewards.join('\n')}`;
     }
 
     const embed = new EmbedBuilder()
@@ -40,10 +42,9 @@ export async function executeDiario(interaction) {
         } catch {}
     }
 
-    // Missão + Presente secreto
     try {
         const { progressoMissao } = await import('../systems/missions.js');
-        const completadas = progressoMissao(interaction.user.id, 'diario', 1);
+        const completadas = await progressoMissao(guildId, interaction.user.id, 'diario', 1);
         if (completadas.length > 0) {
             await interaction.followUp({
                 content: `📋 Missão completa!\n${completadas.map(m => `✅ **${m.nome}**`).join('\n')}`,
@@ -54,7 +55,7 @@ export async function executeDiario(interaction) {
 
     try {
         const { tentarPresenteSecreto } = await import('../systems/secretGifts.js');
-        const secreto = tentarPresenteSecreto(interaction.user.id);
+        const secreto = await tentarPresenteSecreto(guildId, interaction.user.id);
         if (secreto) {
             await interaction.followUp({
                 embeds: [{

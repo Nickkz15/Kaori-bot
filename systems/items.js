@@ -1,7 +1,7 @@
 import { getUser, updateUser, removeItem, getInventory } from '../database/database.js';
 import { ITENS_CATALOGO, RARIDADE } from './economy.js';
 
-export function usarItem(userId, itemId) {
+export async function usarItem(guildId, userId, itemId) {
     const item = ITENS_CATALOGO[itemId];
     if (!item) return { ok: false, msg: 'Esse item não existe.' };
 
@@ -9,15 +9,15 @@ export function usarItem(userId, itemId) {
         return { ok: false, msg: 'Tíquetes se usam com `/evento`. Não com `/usar`.' };
     }
 
-    const inv = getInventory(userId);
+    const inv = await getInventory(guildId, userId);
     const possui = inv.find(i => i.item === itemId);
     if (!possui || possui.quantidade < 1) {
         return { ok: false, msg: 'Você não tem esse item.' };
     }
 
-    removeItem(userId, itemId, 1);
+    await removeItem(guildId, userId, itemId, 1);
 
-    const user = getUser(guildId, userId);
+    const user = await getUser(guildId, userId);
     const efeito = item.efeito || {};
 
     const novo = {
@@ -32,7 +32,7 @@ export function usarItem(userId, itemId) {
     if (itemId === 'cartinha') extras.cartinhas = (user.cartinhas || 0) + 1;
     if (item.tipo === 'presente') extras.presentes = (user.presentes || 0) + 1;
 
-    updateUser(guildId, userId, { ...novo, ...extras });
+    await updateUser(guildId, userId, { ...novo, ...extras });
 
     let frase;
     if (itemId === 'cartinha' && typeof item.frases === 'object') {
@@ -46,7 +46,6 @@ export function usarItem(userId, itemId) {
         frase = '"Hm."';
     }
 
-    // Chance de reação especial em itens raros+
     let especial = null;
     const roll = Math.random() * 100;
     if (item.raridade === 'lendario' && roll < 25) {

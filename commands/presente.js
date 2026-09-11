@@ -1,44 +1,58 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { getInventory, removeItem, addItem, getUser, updateUser } from '../database/database.js';
+import { getInventory, removeItem } from '../database/database.js';
 import { ITENS_CATALOGO, RARIDADE } from '../systems/economy.js';
-import { progressoMissao } from '../systems/missions.js';
+import { usarItem } from '../systems/items.js';
 
 export const presenteCommand = new SlashCommandBuilder()
     .setName('presente')
-    .setDescription('Presenteia outro usuário com um item')
-    .addUserOption(o => o.setName('usuario').setDescription('Para quem?').setRequired(true))
-    .addStringOption(o => o.setName('item').setDescription('ID do item').setRequired(true));
+    .setDescription('Entrega um presente para a Kaori')
+    .addStringOption(o =>
+        o.setName('item')
+            .setDescription('ID do item de presente')
+            .setRequired(true)
+    );
 
 export async function executePresente(interaction) {
-    const alvo = interaction.options.getUser('usuario');
-    const itemId = interaction.options.getString('item').toLowerCase().trim();
-
-    if (alvo.bot) return interaction.reply({ content: 'Não dá pra presentear bots.', ephemeral: true });
-    if (alvo.id === interaction.user.id) return interaction.reply({ content: 'Presenteie outra pessoa.', ephemeral: true });
-
-    const item = ITENS_CATALOGO[itemId];
-    if (!item) return interaction.reply({ content: 'Item inválido.', ephemeral: true });
-
-    const inv = getInventory(interaction.user.id);
-    if (!inv.find(i => i.item === itemId && i.quantidade > 0)) {
-        return interaction.reply({ content: 'Você não tem esse item.', ephemeral: true });
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
     }
 
-    removeItem(interaction.user.id, itemId, 1);
-    addItem(alvo.id, itemId, 1);
+    const itemId = interaction.options.getString('item').toLowerCase().trim();
+    const item = ITENS_CATALOGO[itemId];
 
-    // Pequeno bônus de reputação social
-    const user = getUser(interaction.user.id);
-    updateUser(interaction.user.id, { presentes: (user.presentes || 0) + 1 });
-    progressoMissao(interaction.user.id, 'presente', 1);
+    if (!item || (item.tipo !== 'presente' && item.tipo !== 'carta')) {
+        return interaction.reply({
+            content: 'Esse item não é um presente válido. Use itens como chocolate, flor, ursinho...',
+            ephemeral: true
+        });
+    }
 
-    const r = RARIDADE[item.raridade];
+    const result = await usarItem(guildId, interaction.user.id, itemId);
+
+    if (!result.ok) {
+        return interaction.reply({ content: result.msg, ephemeral: true });
+    }
+
     const embed = new EmbedBuilder()
-        .setColor(r.cor)
+        .setColor(result.raridade?.cor || 0xff4d6d)
+        .setTitle('🎁 Presente entregue')
         .setDescription(
-            `<@${interaction.user.id}> presenteou <@${alvo.id}> com **${item.nome}** ${r.emoji}\n\n` +
-            `"Que generoso... ou interessado."`
+            `<@${interaction.user.id}> deu **${result.item.nome}** para a Kaori.\n\n` +
+            `${result.frase}` +
+            (result.especial ? `\n\n*${result.especial}*` : '')
         );
 
     await interaction.reply({ embeds: [embed] });
+
+    try {
+        const { progressoMissao } = await import('../systems/missions.js');
+        const completadas = await progressoMissao(guildId, interaction.user.id, 'presente', 1);
+        if (completadas.length > 0) {
+            await interaction.followUp({
+                content: `📋 Missão completa!\n${completadas.map(m => `✅ **${m.nome}**`).join('\n')}`,
+                ephemeral: true
+            });
+        }
+    } catch {}
 }

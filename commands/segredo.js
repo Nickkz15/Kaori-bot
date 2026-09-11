@@ -1,60 +1,38 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { usarChave, PRESENTES_SECRETOS } from '../systems/secretGifts.js';
-import { getInventory, getUser } from '../database/database.js';
+import { usarChave } from '../systems/secretGifts.js';
+import { getUser } from '../database/database.js';
 
 export const segredoCommand = new SlashCommandBuilder()
     .setName('segredo')
-    .setDescription('Algo que a Kaori não admite que existe')
-    .addSubcommand(sc =>
-        sc.setName('chave')
-            .setDescription('Usa a Chave Misteriosa (se tiver)')
-    )
-    .addSubcommand(sc =>
-        sc.setName('colecao')
-            .setDescription('Mostra presentes secretos que você ganhou')
-    );
+    .setDescription('Usa uma chave secreta ou revela status secreto');
 
 export async function executeSegredo(interaction) {
-    const sub = interaction.options.getSubcommand();
-
-    if (sub === 'chave') {
-        const result = usarChave(interaction.user.id);
-        if (!result.ok) {
-            return interaction.reply({ content: result.msg, ephemeral: true });
-        }
-
-        const embed = new EmbedBuilder()
-            .setColor(0x9b59b6)
-            .setTitle('🔑 A chave girou...')
-            .setDescription(
-                `${result.frase}\n\n` +
-                `Você recebeu: ${result.recompensa}`
-            );
-
-        return interaction.reply({ embeds: [embed] });
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
     }
 
-    if (sub === 'colecao') {
-        const inv = getInventory(interaction.user.id);
-        const user = getUser(interaction.user.id);
-        const secretos = Object.keys(PRESENTES_SECRETOS);
+    const result = await usarChave(guildId, interaction.user.id);
 
-        const linhas = secretos.map(id => {
-            const info = PRESENTES_SECRETOS[id];
-            const qtd = inv.find(i => i.item === id)?.quantidade || 0;
-            return qtd > 0
-                ? `✨ ${info.nome} × **${qtd}**`
-                : `⬛ ???`;
+    if (!result.ok) {
+        const user = await getUser(guildId, interaction.user.id);
+        return interaction.reply({
+            content:
+                result.msg +
+                `\n\nPresentes secretos recebidos: **${user.presentes_secretos || 0}**\n` +
+                `Afinidade necessária para mais surpresas: ~30+`,
+            ephemeral: true
         });
-
-        const embed = new EmbedBuilder()
-            .setColor(0x9b59b6)
-            .setTitle('🎁 Presentes Secretos da Kaori')
-            .setDescription(linhas.join('\n'))
-            .setFooter({
-                text: `Recebidos: ${user.presentes_secretos || 0} · "Eu nunca te dei nada."`
-            });
-
-        return interaction.reply({ embeds: [embed] });
     }
+
+    const embed = new EmbedBuilder()
+        .setColor(0x9b59b6)
+        .setTitle('🔑 Chave usada')
+        .setDescription(
+            `<@${interaction.user.id}> abriu algo secreto...\n\n` +
+            `Recompensa: ${result.recompensa}\n\n` +
+            `"Não diga que eu te dei isso."`
+        );
+
+    await interaction.reply({ embeds: [embed] });
 }

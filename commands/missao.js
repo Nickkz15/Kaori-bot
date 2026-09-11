@@ -6,25 +6,25 @@ export const missaoCommand = new SlashCommandBuilder()
     .setDescription('Mostra suas missões diárias e semanais');
 
 export async function executeMissao(interaction) {
-    const { diaria, semanal, progresso } = listarMissoes(interaction.user.id);
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
+    }
 
-    const fmt = (m) => {
+    const data = await listarMissoes(guildId, interaction.user.id);
+
+    const fmt = (m, progresso) => {
         if (!m) return 'Nenhuma';
         const p = progresso[m.id] || 0;
-        const bar = '█'.repeat(Math.min(10, Math.floor((p / m.meta) * 10))) + '░'.repeat(10 - Math.min(10, Math.floor((p / m.meta) * 10)));
-        const rec = [];
-        if (m.recompensa.coins) rec.push(`💰 ${m.recompensa.coins}`);
-        if (m.recompensa.xp) rec.push(`✨ ${m.recompensa.xp} XP`);
-        if (m.recompensa.item) rec.push(`🎁 ${m.recompensa.item}`);
-        return `**${m.nome}**\n${m.desc}\n\`${bar}\` ${p}/${m.meta}\nRecompensa: ${rec.join(' · ')}`;
+        return `**${m.nome}**\n${m.desc}\nProgresso: \`${p}/${m.meta}\``;
     };
 
     const embed = new EmbedBuilder()
         .setColor(0xff4d6d)
         .setTitle('📋 Missões')
         .addFields(
-            { name: '📅 Diária', value: fmt(diaria) },
-            { name: '📆 Semanal', value: fmt(semanal) }
+            { name: 'Diária', value: fmt(data.diaria, data.progresso) },
+            { name: 'Semanal', value: fmt(data.semanal, data.progresso) }
         )
         .setFooter({ text: 'Missões resetam automaticamente' });
 

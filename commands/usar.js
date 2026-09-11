@@ -6,41 +6,42 @@ export const usarCommand = new SlashCommandBuilder()
     .setDescription('Usa um item do inventário')
     .addStringOption(o =>
         o.setName('item')
-            .setDescription('ID do item (chocolate, cartinha, ursinho...)')
+            .setDescription('ID do item (ex: cafe, chocolate, flor)')
             .setRequired(true)
     );
 
 export async function executeUsar(interaction) {
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
+    }
+
     const itemId = interaction.options.getString('item').toLowerCase().trim();
-    const result = usarItem(interaction.user.id, itemId);
+    const result = await usarItem(guildId, interaction.user.id, itemId);
 
     if (!result.ok) {
         return interaction.reply({ content: result.msg, ephemeral: true });
     }
 
-    const efeitos = [];
-    if (result.efeito.carinho) efeitos.push(`❤️ +${result.efeito.carinho}`);
-    if (result.efeito.confianca) efeitos.push(`🤝 +${result.efeito.confianca}`);
-    if (result.efeito.afinidade) efeitos.push(`✨ +${result.efeito.afinidade}`);
-    if (result.efeito.humor) efeitos.push(`🎭 +${result.efeito.humor}`);
-    if (result.efeito.energia) efeitos.push(`⚡ +${result.efeito.energia}`);
+    let desc =
+        `<@${interaction.user.id}> usou **${result.item.nome}**\n\n` +
+        `${result.frase}`;
+
+    if (result.especial) {
+        desc += `\n\n*${result.especial}*`;
+    }
 
     const embed = new EmbedBuilder()
         .setColor(result.raridade?.cor || 0xff4d6d)
-        .setTitle(`${result.item.nome} ${result.raridade?.emoji || ''}`)
-        .setDescription(
-            `<@${interaction.user.id}> entregou **${result.item.nome}**.\n\n` +
-            `${result.frase}` +
-            (result.especial ? `\n\n*${result.especial}*` : '') +
-            (efeitos.length ? `\n\n${efeitos.join(' · ')}` : '')
-        )
+        .setTitle('✨ Item usado')
+        .setDescription(desc)
         .setFooter({ text: `Raridade: ${result.raridade?.nome || '?'}` });
 
     await interaction.reply({ embeds: [embed] });
 
     try {
         const { progressoMissao } = await import('../systems/missions.js');
-        const completadas = progressoMissao(interaction.user.id, 'presente', 1);
+        const completadas = await progressoMissao(guildId, interaction.user.id, 'presente', 1);
         if (completadas.length > 0) {
             await interaction.followUp({
                 content: `📋 Missão completa!\n${completadas.map(m => `✅ **${m.nome}**`).join('\n')}`,
@@ -51,7 +52,7 @@ export async function executeUsar(interaction) {
 
     try {
         const { tentarPresenteSecreto } = await import('../systems/secretGifts.js');
-        const secreto = tentarPresenteSecreto(interaction.user.id);
+        const secreto = await tentarPresenteSecreto(guildId, interaction.user.id);
         if (secreto) {
             await interaction.followUp({
                 embeds: [{

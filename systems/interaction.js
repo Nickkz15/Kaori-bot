@@ -1,5 +1,4 @@
 import { getUser, updateUser } from '../database/database.js';
-import { progressoMissao } from './missions.js';
 
 const ACOES = {
     conversar: {
@@ -42,7 +41,6 @@ const ACOES = {
     }
 };
 
-// Easter egg secreto
 const SECRETO = {
     id: 'segredo_kaori',
     nome: '🔮 Segredo',
@@ -51,8 +49,8 @@ const SECRETO = {
     frase: '"...Você descobriu. Não conte pra ninguém. Isso é só nosso."'
 };
 
-export function listarAcoes(userId) {
-    const user = getUser(guildId, userId);
+export async function listarAcoes(guildId, userId) {
+    const user = await getUser(guildId, userId);
     const lista = { ...ACOES };
     if (user.afinidade >= SECRETO.requisito.afinidade && user.carinho >= SECRETO.requisito.carinho) {
         lista.segredo = {
@@ -64,19 +62,19 @@ export function listarAcoes(userId) {
     return lista;
 }
 
-export function interagir(userId, acaoId) {
-    const user = getUser(guildId, userId);
+export async function interagir(guildId, userId, acaoId) {
+    const user = await getUser(guildId, userId);
     const agora = Date.now();
     const ultimo = user.last_interagir ? Number(user.last_interagir) : 0;
 
     if (agora - ultimo < 3 * 60 * 1000) {
         const s = Math.ceil((3 * 60 * 1000 - (agora - ultimo)) / 1000);
-        return { ok: false, msg: `Espere **${s}s** antes de interagir de novo.` };
+        return { ok: false, msg: `Espere mais **${s}s** antes de interagir de novo.` };
     }
 
-    const acoes = listarAcoes(userId);
+    const acoes = await listarAcoes(guildId, userId);
     const acao = acoes[acaoId];
-    if (!acao) return { ok: false, msg: 'Ação inválida.' };
+    if (!acao) return { ok: false, msg: 'Essa ação não existe ou ainda não está disponível.' };
 
     const efeito = acao.efeito || {};
     const novo = {
@@ -87,7 +85,8 @@ export function interagir(userId, acaoId) {
         energia: Math.min(100, Math.max(0, (user.energia || 70) + (efeito.energia || 0))),
         last_interagir: String(agora)
     };
-    updateUser(guildId, userId, novo);
+
+    await updateUser(guildId, userId, novo);
 
     let frase;
     if (typeof acao.frases === 'object' && !Array.isArray(acao.frases)) {
@@ -95,11 +94,11 @@ export function interagir(userId, acaoId) {
         if (media >= 70) frase = acao.frases.alto;
         else if (media >= 40) frase = acao.frases.medio;
         else frase = acao.frases.baixo;
-    } else {
+    } else if (Array.isArray(acao.frases)) {
         frase = acao.frases[Math.floor(Math.random() * acao.frases.length)];
+    } else {
+        frase = '"Hm."';
     }
 
-    progressoMissao(userId, 'interagir', 1);
-
-    return { ok: true, acao, frase, efeito, novo };
+    return { ok: true, acao, frase, novo, efeito };
 }

@@ -1,58 +1,52 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { getUser, updateUser, removeCoins } from '../database/database.js';
+import { updateUser } from '../database/database.js';
+
+function gerarAtributosAleatorios() {
+    const rand = () => Math.floor(Math.random() * 101);
+    return {
+        caos: rand(),
+        sorte: rand(),
+        charme: rand(),
+        inteligencia: rand(),
+        energia: rand()
+    };
+}
+
+function barra(valor, max = 100) {
+    const cheios = Math.round((valor / max) * 10);
+    return '█'.repeat(cheios) + '░'.repeat(10 - cheios) + ` ${valor}/${max}`;
+}
 
 export const resetarCommand = new SlashCommandBuilder()
     .setName('resetar-perfil')
-    .setDescription('Reinicia carinho/confiança/afinidade por 8.000 coins (novo começo)');
+    .setDescription('Reseta as estatísticas do perfil (Caos, Sorte, Charme, Inteligência, Energia)');
 
 export async function executeResetar(interaction) {
-    const user = getUser(interaction.user.id);
-
-    if (user.coins < 8000) {
-        return interaction.reply({
-            content: `Você precisa de **8.000** coins. Tem **${user.coins}**.`,
-            ephemeral: true
-        });
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
     }
 
-    removeCoins(interaction.user.id, 8000);
+    const novos = gerarAtributosAleatorios();
 
-    // Bônus aleatório do "novo começo"
-    const roll = Math.random() * 100;
-    let bonusTexto = 'Kaori parece indiferente.';
-    let bonus = {};
-
-    if (roll < 5) {
-        bonusTexto = '✦ **CONEXÃO EXCEPCIONAL** — algo especial nasceu.';
-        bonus = { carinho: 10, confianca: 10, afinidade: 10, humor: 20 };
-    } else if (roll < 15) {
-        bonusTexto = 'Kaori parece especialmente receptiva.';
-        bonus = { carinho: 5, afinidade: 5, humor: 10 };
-    } else if (roll < 35) {
-        bonusTexto = 'Kaori parece mais receptiva que o normal.';
-        bonus = { afinidade: 3, humor: 5 };
-    } else if (roll < 60) {
-        bonusTexto = 'Kaori parece curiosa.';
-        bonus = { humor: 5 };
-    }
-
-    updateUser(interaction.user.id, {
-        carinho: bonus.carinho || 0,
-        confianca: bonus.confianca || 0,
-        afinidade: bonus.afinidade || 0,
-        humor: 50 + (bonus.humor || 0),
-        temporada: (user.temporada || 1) + 1
+    await updateUser(guildId, interaction.user.id, {
+        atributos: novos
     });
 
     const embed = new EmbedBuilder()
-        .setColor(0x9b59b6)
-        .setTitle('💫 Novo Começo')
+        .setColor(0xff4d6d)
+        .setTitle('🔄 Perfil resetado')
         .setDescription(
-            `Seus vínculos com a Kaori foram reiniciados.\n\n` +
-            `**Temporada ${(user.temporada || 1) + 1}**\n\n` +
-            `${bonusTexto}\n\n` +
-            `"...Do zero. Não estrague de novo."`
-        );
+            `<@${interaction.user.id}> regenerou as estatísticas do perfil.\n\n` +
+            `**Novos atributos**\n` +
+            `Caos         ${barra(novos.caos)}\n` +
+            `Sorte        ${barra(novos.sorte)}\n` +
+            `Charme       ${barra(novos.charme)}\n` +
+            `Inteligência ${barra(novos.inteligencia)}\n` +
+            `Energia      ${barra(novos.energia)}\n\n` +
+            `"Pronto. Agora você é outra pessoa... quase."`
+        )
+        .setFooter({ text: 'Relacionamento com a Kaori não foi alterado' });
 
     await interaction.reply({ embeds: [embed] });
 }

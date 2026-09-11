@@ -10,7 +10,6 @@ export const RARIDADE = {
 };
 
 export const ITENS_CATALOGO = {
-    // ===== COMUM =====
     cafe: {
         id: 'cafe', nome: '☕ Café', preco: 400, maxEstoque: 10, raridade: 'comum', chance: 85,
         tipo: 'consumivel',
@@ -29,8 +28,6 @@ export const ITENS_CATALOGO = {
         efeito: { carinho: 2, humor: 4 },
         frases: ['"Sério? Uma bala?"', '"...Obrigada. Eu acho."']
     },
-
-    // ===== INCOMUM =====
     flor: {
         id: 'flor', nome: '🌹 Rosa', preco: 2200, maxEstoque: 3, raridade: 'incomum', chance: 45,
         tipo: 'presente',
@@ -53,8 +50,6 @@ export const ITENS_CATALOGO = {
         efeito: { carinho: 12, afinidade: 7 },
         frases: ['"Fofo... não diga que eu disse isso."', '"Você tem um gosto estranho."']
     },
-
-    // ===== RARO =====
     ursinho: {
         id: 'ursinho', nome: '🧸 Ursinho', preco: 5500, maxEstoque: 1, raridade: 'raro', chance: 28,
         tipo: 'presente',
@@ -73,8 +68,6 @@ export const ITENS_CATALOGO = {
         efeito: { confianca: 10, afinidade: 6, humor: 5 },
         frases: ['"Você leu isso...? Interessante."', '"Não esperava esse tipo de presente."']
     },
-
-    // ===== ÉPICO =====
     colar: {
         id: 'colar', nome: '📿 Colar da Kaori', preco: 9000, maxEstoque: 1, raridade: 'epico', chance: 15,
         tipo: 'presente',
@@ -87,8 +80,6 @@ export const ITENS_CATALOGO = {
         efeito: {},
         frases: ['"Esse abre coisas melhores. Não desperdice."']
     },
-
-    // ===== LENDÁRIO =====
     rosa_negra: {
         id: 'rosa_negra', nome: '🖤 Rosa Negra', preco: 14000, maxEstoque: 1, raridade: 'lendario', chance: 7,
         tipo: 'presente',
@@ -101,16 +92,12 @@ export const ITENS_CATALOGO = {
         efeito: { carinho: 30, confianca: 20, afinidade: 25 },
         frases: ['"...Você tem noção do que está fazendo?"', '"Eu aceito. Mas se for brincadeira, eu nunca mais falo com você."']
     },
-
-    // ===== MÍTICO =====
     coracao_kaori: {
         id: 'coracao_kaori', nome: '💖 Coração da Kaori', preco: 35000, maxEstoque: 1, raridade: 'mitico', chance: 2,
         tipo: 'presente',
         efeito: { carinho: 40, confianca: 30, afinidade: 35, humor: 20 },
         frases: ['"...Isso não deveria existir."', '"Você conseguiu algo que quase ninguém consegue. Não estrague."']
     },
-
-    // ===== EASTER EGGS =====
     gato_preto: {
         id: 'gato_preto', nome: '🐈‍⬛ Gato Preto', preco: 7777, maxEstoque: 1, raridade: 'mitico', chance: 1,
         tipo: 'presente',
@@ -128,11 +115,12 @@ export const ITENS_CATALOGO = {
         }
     }
 };
+
 const RESET_MS = 2 * 60 * 60 * 1000;
 
-export function gerarLoja() {
+export async function gerarLoja(guildId) {
     const agora = Date.now();
-    const shop = getShop();
+    const shop = await getShop(guildId);
 
     if (shop.nextReset > agora && shop.items?.length > 0) return shop;
 
@@ -164,20 +152,20 @@ export function gerarLoja() {
     }
 
     const novaLoja = { items: novos, nextReset: agora + RESET_MS };
-    setShop(novaLoja);
+    await setShop(guildId, novaLoja);
     return novaLoja;
 }
 
-export function tempoRestanteLoja() {
-    const shop = getShop();
+export async function tempoRestanteLoja(guildId) {
+    const shop = await getShop(guildId);
     const restante = Math.max(0, (shop.nextReset || 0) - Date.now());
     const h = Math.floor(restante / 3600000);
     const m = Math.floor((restante % 3600000) / 60000);
     return `${h}h ${m}min`;
 }
 
-export function dailyReward(userId) {
-    const user = getUser(guildId, userId);
+export async function dailyReward(guildId, userId) {
+    const user = await getUser(guildId, userId);
     const hoje = new Date().toISOString().slice(0, 10);
     const ontem = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
@@ -198,14 +186,14 @@ export function dailyReward(userId) {
     const random = Math.floor(Math.random() * 400);
     const recompensa = Math.floor((base + random) * mult);
 
-    updateUser(guildId, userId, {
+    await updateUser(guildId, userId, {
         coins: user.coins + recompensa,
         daily: hoje,
         daily_streak: streak,
         last_daily_date: hoje
     });
 
-    const xpResult = addXP(userId, 20 + Math.floor(user.level * 2));
+    const xpResult = await addXP(guildId, userId, 20 + Math.floor(user.level * 2));
 
     return {
         ok: true,
@@ -217,15 +205,14 @@ export function dailyReward(userId) {
     };
 }
 
-export function work(userId) {
-    const user = getUser(guildId, userId);
+export async function work(guildId, userId) {
+    const user = await getUser(guildId, userId);
     const agora = Date.now();
     const ultimo = user.last_work ? Number(user.last_work) : 0;
-    const cooldown = 45 * 60 * 1000; // 45 min
+    const cooldown = 45 * 60 * 1000;
 
     if (agora - ultimo < cooldown) {
         const restante = Math.ceil((cooldown - (agora - ultimo)) / 60000);
-
         return {
             ok: false,
             msg: `Você ainda está cansado.\nEspere mais **${restante} minuto${restante > 1 ? 's' : ''}**.`
@@ -240,21 +227,17 @@ export function work(userId) {
     ];
 
     const t = trabalhos[Math.floor(Math.random() * trabalhos.length)];
-
     const ganho =
         Math.floor(Math.random() * (t.max - t.min + 1)) +
         t.min +
         Math.floor(user.level * 5);
 
-    updateUser(guildId, userId, {
+    await updateUser(guildId, userId, {
         coins: user.coins + ganho,
         last_work: String(agora)
     });
 
-    const xpResult = addXP(
-        userId,
-        12 + Math.floor(user.level * 1.5)
-    );
+    const xpResult = await addXP(guildId, userId, 12 + Math.floor(user.level * 1.5));
 
     return {
         ok: true,
@@ -265,12 +248,17 @@ export function work(userId) {
     };
 }
 
-export function transferir(fromId, toId, quantidade) {
+export async function transferir(guildId, fromId, toId, quantidade) {
     if (quantidade <= 0) return { ok: false, msg: 'Quantidade inválida.' };
     if (fromId === toId) return { ok: false, msg: 'Você não pode pagar a si mesmo.' };
-    const fromUser = getUser(guildId, fromId);
-    if (fromUser.coins < quantidade) return { ok: false, msg: `Você só tem **${fromUser.coins}** Kaori Coins.` };
-    removeCoins(fromId, quantidade);
-    addCoins(toId, quantidade);
+
+    const fromUser = await getUser(guildId, fromId);
+    if (fromUser.coins < quantidade) {
+        return { ok: false, msg: `Você só tem **${fromUser.coins}** Kaori Coins.` };
+    }
+
+    await removeCoins(guildId, fromId, quantidade);
+    await addCoins(guildId, toId, quantidade);
+
     return { ok: true, quantidade, novoSaldo: fromUser.coins - quantidade };
 }

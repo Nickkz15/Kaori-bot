@@ -14,16 +14,21 @@ export const rankCommand = new SlashCommandBuilder()
     );
 
 export async function executeRank(interaction) {
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
+    }
+
     const tipo = interaction.options.getString('tipo') || 'coins';
 
     let lista;
     let titulo;
 
     if (tipo === 'level') {
-        lista = getTopLevel(10);
+        lista = await getTopLevel(guildId, 10);
         titulo = '🏆 Ranking de Nível';
     } else {
-        lista = getTopCoins(10);
+        lista = await getTopCoins(guildId, 10);
         titulo = '💰 Ranking de Kaori Coins';
     }
 

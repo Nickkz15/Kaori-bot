@@ -8,6 +8,11 @@ export const pagarCommand = new SlashCommandBuilder()
     .addIntegerOption(o => o.setName('quantidade').setDescription('Quantas coins?').setRequired(true).setMinValue(1));
 
 export async function executePagar(interaction) {
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
+    }
+
     const alvo = interaction.options.getUser('usuario');
     const quantidade = interaction.options.getInteger('quantidade');
 
@@ -15,7 +20,7 @@ export async function executePagar(interaction) {
         return interaction.reply({ content: 'Não dá para pagar bots.', ephemeral: true });
     }
 
-    const result = transferir(interaction.user.id, alvo.id, quantidade);
+    const result = await transferir(guildId, interaction.user.id, alvo.id, quantidade);
 
     if (!result.ok) {
         return interaction.reply({ content: result.msg, ephemeral: true });

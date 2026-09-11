@@ -1,126 +1,69 @@
 import { getUser, updateUser, addItem, getInventory, removeItem, addCoins } from '../database/database.js';
+import { ITENS_CATALOGO } from './economy.js';
 
-export const PRESENTES_SECRETOS = {
-    bilhete: {
-        id: 'bilhete',
-        nome: '📝 Bilhete da Kaori',
-        raridade: 'raro',
-        frases: [
-            '"Não pergunte por quê."',
-            '"Achei que você ia gostar. Ou não."',
-            '"Se perder, eu nego que existiu."'
-        ]
-    },
-    chave: {
-        id: 'chave',
-        nome: '🔑 Chave Misteriosa',
-        raridade: 'epico',
-        frases: [
-            '"Não sei o que abre. Descubra."',
-            '"Guardar bem."'
-        ]
-    },
-    foto: {
-        id: 'foto',
-        nome: '📷 Polaroid da Kaori',
-        raridade: 'lendario',
-        frases: [
-            '"Apaguei a original. Essa é a única."',
-            '"Se mostrar pra alguém, eu finjo que não te conheço."'
-        ]
-    },
-    fita_vermelha: {
-        id: 'fita_vermelha',
-        nome: '🎀 Fita Vermelha',
-        raridade: 'epico',
-        frases: [
-            '"Minha cor favorita. Não estrague."',
-            '"Você notou."'
-        ]
-    },
-    estrelinha: {
-        id: 'estrelinha',
-        nome: '⭐ Estrelinha',
-        raridade: 'incomum',
-        frases: [
-            '"Só pra não dizer que eu nunca te dei nada."',
-            '"Toma. Agora some."'
-        ]
-    }
-};
+const PRESENTES_SECRETOS = [
+    { item: 'bala', chance: 40, frase: '"Achei isso no bolso. Pode ficar."' },
+    { item: 'cafe', chance: 25, frase: '"Toma. Você parece precisar."' },
+    { item: 'chocolate', chance: 15, frase: '"Não se acostume com presentes."' },
+    { item: 'cartinha', chance: 10, frase: '"...Eu escrevi isso ontem. Não leia agora."' },
+    { item: 'ticket', chance: 7, frase: '"Use bem. Ou não use. Tanto faz."' },
+    { item: 'chave', chance: 3, frase: '"Isso abre algo especial. Guarde."' }
+];
 
-const CHANCE_BASE = 4;
+export async function tentarPresenteSecreto(guildId, userId) {
+    const user = await getUser(guildId, userId);
 
-export function tentarPresenteSecreto(userId) {
-    const user = getUser(guildId, userId);
+    if ((user.afinidade || 0) < 30) return null;
+    if (Math.random() > 0.12) return null;
 
-    let chance = CHANCE_BASE;
-    if (user.afinidade >= 80) chance += 4;
-    else if (user.afinidade >= 50) chance += 2;
-    if ((user.humor || 50) >= 70) chance += 2;
+    const roll = Math.random() * 100;
+    let acumulado = 0;
+    let escolhido = null;
+    let frase = null;
 
-    if (Math.random() * 100 > chance) return null;
-
-    const pesos = {
-        estrelinha: 40,
-        bilhete: 30,
-        chave: 15,
-        fita_vermelha: 10,
-        foto: 5
-    };
-
-    const pool = [];
-    for (const [id, peso] of Object.entries(pesos)) {
-        for (let i = 0; i < peso; i++) pool.push(id);
+    for (const p of PRESENTES_SECRETOS) {
+        acumulado += p.chance;
+        if (roll <= acumulado) {
+            escolhido = p.item;
+            frase = p.frase;
+            break;
+        }
     }
 
-    const escolhido = pool[Math.floor(Math.random() * pool.length)];
-    const presente = PRESENTES_SECRETOS[escolhido];
+    if (!escolhido) return null;
 
-    addItem(userId, escolhido, 1);
-    updateUser(guildId, userId, {
+    await addItem(guildId, userId, escolhido, 1);
+    await updateUser(guildId, userId, {
         presentes_secretos: (user.presentes_secretos || 0) + 1
     });
 
-    const frase = presente.frases[Math.floor(Math.random() * presente.frases.length)];
-
-    return { item: presente, frase };
+    const item = ITENS_CATALOGO[escolhido] || { nome: escolhido, id: escolhido };
+    return { item, frase };
 }
 
-/** Usar a Chave Misteriosa — easter egg */
-export function usarChave(userId) {
-    const inv = getInventory(userId);
-    const tem = inv.find(i => i.item === 'chave' && i.quantidade > 0);
-    if (!tem) return { ok: false, msg: 'Você não tem a 🔑 Chave Misteriosa.' };
+export async function usarChave(guildId, userId) {
+    const inv = await getInventory(guildId, userId);
+    const chave = inv.find(i => i.item === 'chave' && i.quantidade > 0);
+    if (!chave) return { ok: false, msg: 'Você não tem uma chave.' };
 
-    const user = getUser(guildId, userId);
-    if (user.afinidade < 60) {
-        return { ok: false, msg: '"Ainda não. Você não está pronto."' };
-    }
+    await removeItem(guildId, userId, 'chave', 1);
 
-    removeItem(userId, 'chave', 1);
-
-    // Recompensa especial
-    const roll = Math.random() * 100;
+    const roll = Math.random();
     let recompensa;
 
-    if (roll < 40) {
-        addCoins(userId, 5000);
-        recompensa = '💰 **5.000** Kaori Coins';
-    } else if (roll < 70) {
-        addItem(userId, 'ticket_dourado', 1);
+    if (roll < 0.4) {
+        await addCoins(guildId, userId, 5000);
+        recompensa = '**5.000** Kaori Coins';
+    } else if (roll < 0.7) {
+        await addItem(guildId, userId, 'ticket_dourado', 1);
         recompensa = '🎫 **Tíquete Dourado**';
-    } else if (roll < 90) {
-        addItem(userId, 'foto', 1);
-        recompensa = '📷 **Polaroid da Kaori**';
+    } else if (roll < 0.9) {
+        await addItem(guildId, userId, 'foto', 1);
+        recompensa = '📷 **Foto da Kaori**';
     } else {
-        addItem(userId, 'coracao_kaori', 1);
-        recompensa = '💖 **Coração da Kaori** (mítico)';
+        await addItem(guildId, userId, 'coracao_kaori', 1);
+        recompensa = '💖 **Coração da Kaori**';
     }
 
-    return {
-        ok: true,
-        frase: '"Você realmente usou... Tá. Fica com isso. E não pergunte de novo."',
-        recompensa
-    };
+    return { ok: true, recompensa };
 }

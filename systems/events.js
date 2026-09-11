@@ -93,24 +93,26 @@ const EVENTOS = [
     }
 ];
 
-export function listarEventosDisponiveis(userId) {
-    const user = getUser(guildId, userId);
+export async function listarEventosDisponiveis(guildId, userId) {
+    const user = await getUser(guildId, userId);
     return EVENTOS.filter(e => user.afinidade >= e.minAfinidade);
 }
 
-export function iniciarEvento(userId, alvoId, ticketTipo = 'ticket') {
-    const inv = getInventory(userId);
+export async function iniciarEvento(guildId, userId, alvoId, ticketTipo = 'ticket') {
+    const inv = await getInventory(guildId, userId);
     const temTicket = inv.find(i => i.item === ticketTipo && i.quantidade > 0);
     if (!temTicket) {
-        return { ok: false, msg: ticketTipo === 'ticket_dourado'
-            ? 'Você precisa de um 🎫 Tíquete Dourado.'
-            : 'Você precisa de um 🎟️ Tíquete de Evento.\nCompre na `/loja`.' };
+        return {
+            ok: false,
+            msg: ticketTipo === 'ticket_dourado'
+                ? 'Você precisa de um 🎫 Tíquete Dourado.'
+                : 'Você precisa de um 🎟️ Tíquete de Evento.\nCompre na `/loja`.'
+        };
     }
 
-    const user = getUser(guildId, userId);
+    const user = await getUser(guildId, userId);
     let pool = EVENTOS.filter(e => user.afinidade >= e.minAfinidade);
 
-    // Tíquete dourado favorece eventos especiais
     if (ticketTipo === 'ticket_dourado') {
         const especiais = pool.filter(e => e.especial);
         if (especiais.length > 0 && Math.random() < 0.6) {
@@ -122,7 +124,7 @@ export function iniciarEvento(userId, alvoId, ticketTipo = 'ticket') {
         return { ok: false, msg: 'Sua afinidade ainda é baixa demais para eventos.\nAumente com presentes e interações.' };
     }
 
-    removeItem(userId, ticketTipo, 1);
+    await removeItem(guildId, userId, ticketTipo, 1);
 
     const evento = pool[Math.floor(Math.random() * pool.length)];
     const media = (user.carinho + user.afinidade) / 2;
@@ -132,11 +134,9 @@ export function iniciarEvento(userId, alvoId, ticketTipo = 'ticket') {
     else if (media >= 40) nivelFrase = 'medio';
 
     const frase = evento.frases[nivelFrase];
-
-    // Resultado de diversão (50-100)
     const diversao = 50 + Math.floor(Math.random() * 51);
-
     const recompensa = evento.recompensa;
+
     const novo = {
         carinho: Math.min(100, user.carinho + (recompensa.carinho || 0)),
         confianca: Math.min(100, user.confianca + (recompensa.confianca || 0)),
@@ -146,12 +146,11 @@ export function iniciarEvento(userId, alvoId, ticketTipo = 'ticket') {
         eventos: (user.eventos || 0) + 1
     };
 
-    updateUser(guildId, userId, novo);
+    await updateUser(guildId, userId, novo);
 
-    // Pequeno bônus de coins/XP
     const bonusCoins = 100 + Math.floor(diversao * 3);
-    addCoins(guildId, userId, bonusCoins);
-    addXP(guildId, userId, 10 + Math.floor(diversao / 10));
+    await addCoins(guildId, userId, bonusCoins);
+    await addXP(guildId, userId, 10 + Math.floor(diversao / 10));
 
     return {
         ok: true,

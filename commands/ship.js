@@ -25,6 +25,11 @@ function fraseKaori(porcentagem) {
 }
 
 export async function executeShip(interaction) {
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
+    }
+
     const user1 = interaction.options.getUser('usuario1');
     const user2 = interaction.options.getUser('usuario2');
 
@@ -48,42 +53,20 @@ export async function executeShip(interaction) {
         )
         .setFooter({ text: 'Sempre o mesmo resultado • zero IA' });
 
-    // Responde o comando principal primeiro
     await interaction.reply({ embeds: [embed] });
 
-    // Integração com conquistas (depois da resposta)
     try {
-    const { incrementAction } = await import('../database/database.js');
+        const { incrementAction } = await import('../database/database.js');
+        await incrementAction(guildId, interaction.user.id, 'ship');
 
-    await incrementAction(
-        interaction.guildId,
-        interaction.user.id,
-        'ship'
-    );
+        const { checkAndUnlock } = await import('../systems/achievements.js');
+        const novas = await checkAndUnlock(guildId, interaction.user.id, { action: 'ship' });
 
-    const { checkAndUnlock } = await import('../systems/achievements.js');
-
-    const novas = await checkAndUnlock(
-        interaction.user.id,
-        {
-            action: 'ship'
+        if (novas.length > 0) {
+            const { enviarConquista } = await import('../systems/notifications.js');
+            await enviarConquista(interaction, novas);
         }
-    );
-
-    if (novas.length > 0) {
-        const { enviarConquista } =
-            await import('../systems/notifications.js');
-
-        await enviarConquista(
-            interaction,
-            novas
-        );
-    }
-
-} catch (error) {
-    console.error(
-        'Erro ao processar conquista do /ship:',
-        error.message
-        );
+    } catch (error) {
+        console.error('Erro ao processar conquista do /ship:', error.message);
     }
 }

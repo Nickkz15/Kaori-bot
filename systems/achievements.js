@@ -51,50 +51,47 @@ export const ACHIEVEMENTS = {
     }
 };
 
-// Re-exporta para outros arquivos poderem usar
 export { unlockAchievement, getAchievements };
 
-export function checkAndUnlock(userId, context = {}) {
+export async function checkAndUnlock(guildId, userId, context = {}) {
     const unlocked = [];
     const action = context.action;
 
-    // ----- Conquistas baseadas em ações -----
     if (action === 'hug') {
-        const count = getActionCount(guildId, userId, 'hug');
-        if (count === 1 && unlockAchievement(userId, 'primeiro_abraco')) {
+        const count = await getActionCount(guildId, userId, 'hug');
+        if (count === 1 && await unlockAchievement(guildId, userId, 'primeiro_abraco')) {
             unlocked.push('primeiro_abraco');
         }
-        if (count >= 50 && unlockAchievement(userId, 'carinhoso')) {
+        if (count >= 50 && await unlockAchievement(guildId, userId, 'carinhoso')) {
             unlocked.push('carinhoso');
         }
     }
 
     if (action === 'slap') {
-        const count = getActionCount(guildId, userId, 'slap');
-        if (count >= 25 && unlockAchievement(userId, 'problematico')) {
+        const count = await getActionCount(guildId, userId, 'slap');
+        if (count >= 25 && await unlockAchievement(guildId, userId, 'problematico')) {
             unlocked.push('problematico');
         }
     }
 
     if (action === 'ship') {
-        const count = getActionCount(guildId, userId, 'ship');
-        if (count >= 50 && unlockAchievement(userId, 'casamenteiro')) {
+        const count = await getActionCount(guildId, userId, 'ship');
+        if (count >= 50 && await unlockAchievement(guildId, userId, 'casamenteiro')) {
             unlocked.push('casamenteiro');
         }
     }
 
-    // ----- Conquistas baseadas em status do usuário -----
-    const user = getUser(guildId, userId);
+    const user = await getUser(guildId, userId);
 
-    if (user.afinidade >= 80 && unlockAchievement(userId, 'favorito')) {
+    if (user.afinidade >= 80 && await unlockAchievement(guildId, userId, 'favorito')) {
         unlocked.push('favorito');
     }
 
-    if (user.level >= 30 && unlockAchievement(userId, 'veterano')) {
+    if (user.level >= 30 && await unlockAchievement(guildId, userId, 'veterano')) {
         unlocked.push('veterano');
     }
 
-    if (user.coins >= 10000 && unlockAchievement(userId, 'rico')) {
+    if (user.coins >= 10000 && await unlockAchievement(guildId, userId, 'rico')) {
         unlocked.push('rico');
     }
 

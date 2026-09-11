@@ -14,11 +14,12 @@ const MISSOES_SEMANAIS = [
     { id: 'trabalhar_15', nome: 'Dedicação', desc: 'Trabalhe 15 vezes', tipo: 'trabalhar', meta: 15, recompensa: { coins: 4000, xp: 100 } }
 ];
 
-function getMissaoState(userId) {
-    const user = getUser(guildId, userId);
+async function getMissaoState(guildId, userId) {
+    const user = await getUser(guildId, userId);
     if (!user.missoes) {
-        user.missoes = { diaria: null, semanal: null, progresso: {}, resetDiario: null, resetSemanal: null };
-        updateUser(guildId, userId, { missoes: user.missoes });
+        const missoes = { diaria: null, semanal: null, progresso: {}, resetDiario: null, resetSemanal: null };
+        await updateUser(guildId, userId, { missoes });
+        return missoes;
     }
     return user.missoes;
 }
@@ -29,10 +30,10 @@ function semanaId() {
     return `${d.getFullYear()}-W${Math.ceil((((d - onejan) / 86400000) + onejan.getDay() + 1) / 7)}`;
 }
 
-export function garantirMissoes(userId) {
+export async function garantirMissoes(guildId, userId) {
     const hoje = new Date().toISOString().slice(0, 10);
     const sem = semanaId();
-    const state = getMissaoState(userId);
+    const state = await getMissaoState(guildId, userId);
 
     if (state.resetDiario !== hoje) {
         const m = MISSOES_DIARIAS[Math.floor(Math.random() * MISSOES_DIARIAS.length)];
@@ -46,12 +47,12 @@ export function garantirMissoes(userId) {
         state.progresso[m.id] = 0;
         state.resetSemanal = sem;
     }
-    updateUser(guildId, userId, { missoes: state });
+    await updateUser(guildId, userId, { missoes: state });
     return state;
 }
 
-export function progressoMissao(userId, tipo, quantidade = 1) {
-    const state = garantirMissoes(userId);
+export async function progressoMissao(guildId, userId, tipo, quantidade = 1) {
+    const state = await garantirMissoes(guildId, userId);
     const todas = [...MISSOES_DIARIAS, ...MISSOES_SEMANAIS];
     const completadas = [];
 
@@ -62,19 +63,18 @@ export function progressoMissao(userId, tipo, quantidade = 1) {
 
         state.progresso[m.id] = (state.progresso[m.id] || 0) + quantidade;
         if (state.progresso[m.id] >= m.meta) {
-            // recompensa
-            if (m.recompensa.coins) addCoins(userId, m.recompensa.coins);
-            if (m.recompensa.xp) addXP(userId, m.recompensa.xp);
-            if (m.recompensa.item) addItem(userId, m.recompensa.item, 1);
+            if (m.recompensa.coins) await addCoins(guildId, userId, m.recompensa.coins);
+            if (m.recompensa.xp) await addXP(guildId, userId, m.recompensa.xp);
+            if (m.recompensa.item) await addItem(guildId, userId, m.recompensa.item, 1);
             completadas.push(m);
         }
     }
-    updateUser(guildId, userId, { missoes: state });
+    await updateUser(guildId, userId, { missoes: state });
     return completadas;
 }
 
-export function listarMissoes(userId) {
-    const state = garantirMissoes(userId);
+export async function listarMissoes(guildId, userId) {
+    const state = await garantirMissoes(guildId, userId);
     const find = id => [...MISSOES_DIARIAS, ...MISSOES_SEMANAIS].find(m => m.id === id);
     return {
         diaria: find(state.diaria),

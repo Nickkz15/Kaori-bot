@@ -23,10 +23,10 @@ import {
     PERSONALITY
 } from './config/kaori.js';
 
+import { initDatabase } from './database/database.js';
 import { ai } from './systems/ai.js';
 import { buscarGifKaori } from './systems/nekos.js';
 
-// ====================== COMANDOS ======================
 import { verificarCommand, verificarMembro } from './commands/verificar.js';
 import { kaoriCommand, KAORI_ACTIONS, criarEmbedAcao } from './commands/kaori.js';
 import { shipCommand, executeShip } from './commands/ship.js';
@@ -53,10 +53,6 @@ import { segredoCommand, executeSegredo } from './commands/segredo.js';
 import { resetarCommand, executeResetar } from './commands/resetar.js';
 import { ajudaCommand, executeAjuda } from './commands/ajuda.js';
 
-/* =========================================================
-   DISCORD CLIENT
-   ========================================================= */
-
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -66,13 +62,8 @@ const client = new Client({
     ]
 });
 
-// Evita crash por erros não tratados
 client.on('error', (err) => console.error('Client error:', err));
 process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
-
-/* =========================================================
-   CONTROLE DE IA (estados locais)
-   ========================================================= */
 
 const aiCooldowns = new Map();
 let activeAIRequests = 0;
@@ -83,10 +74,6 @@ const AI_RATE_LIMIT_MAX = 10;
 const AI_RATE_LIMIT_WINDOW = 5 * 60 * 1000;
 const aiRateLimits = new Map();
 const processedMessages = new Set();
-
-/* =========================================================
-   FUNÇÕES AUXILIARES
-   ========================================================= */
 
 function dividirResposta(texto, limite = 1900) {
     const partes = [];
@@ -124,16 +111,57 @@ function identificarUsuario(userId) {
     return `\nVocê está falando com um membro comum do servidor.\n`;
 }
 
-/* =========================================================
-   CLIENT READY (quando o bot fica online)
-   ========================================================= */
+async function safeReply(interaction, payload) {
+    try {
+        if (interaction.deferred || interaction.replied) {
+            return await interaction.editReply(payload);
+        }
+        return await interaction.reply(payload);
+    } catch (err) {
+        console.error('safeReply error:', err.message);
+    }
+}
+
+const COMMAND_HANDLERS = {
+    ship: executeShip,
+    perfil: executePerfil,
+    dado: executeDado,
+    moeda: executeMoeda,
+    sorte: executeSorte,
+    saldo: executeSaldo,
+    diario: executeDiario,
+    trabalhar: executeTrabalhar,
+    pagar: executePagar,
+    rank: executeRank,
+    loja: executeLoja,
+    comprar: executeComprar,
+    relacionamento: executeRelacionamento,
+    conquistas: executeConquistas,
+    abrir: executeAbrir,
+    inventario: executeInventario,
+    usar: executeUsar,
+    evento: executeEvento,
+    missao: executeMissao,
+    interagir: executeInteragir,
+    colecao: executeColecao,
+    presente: executePresente,
+    segredo: executeSegredo,
+    'resetar-perfil': executeResetar,
+    ajuda: executeAjuda
+};
 
 client.once(Events.ClientReady, async (bot) => {
     console.log('================================');
     console.log(`🤖 Kaori online como ${bot.user.tag}`);
     console.log('================================');
 
-    // ---------- Registrar comandos ----------
+    try {
+        await initDatabase();
+    } catch (err) {
+        console.error('❌ Falha ao inicializar PostgreSQL:', err.message);
+        process.exit(1);
+    }
+
     const rest = new REST({ version: '10' }).setToken(TOKEN);
 
     try {
@@ -171,13 +199,11 @@ client.once(Events.ClientReady, async (bot) => {
                 ]
             }
         );
-
         console.log('✅ Todos os comandos foram registrados com sucesso!');
     } catch (error) {
         console.error('❌ Erro ao registrar comandos:', error);
     }
 
-    // ---------- Logs de sistemas ----------
     console.log('🟢 Sistema de Server Tag ativo.');
     console.log('🧠 Sistema de IA Gemini ativo.');
     console.log(`🤖 Modelo: ${AI_MODEL}`);
@@ -185,189 +211,117 @@ client.once(Events.ClientReady, async (bot) => {
     console.log('================================');
 });
 
-/* =========================================================
-   INTERAÇÕES (Slash Commands)
-   ========================================================= */
-
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
     if (interaction.guildId !== GUILD_ID) return;
-    if (interaction.commandName === 'abrir') return executeAbrir(interaction);
 
-    // ---------- /kaori ----------
-if (interaction.commandName === 'kaori') {
-    const acao = interaction.options.getSubcommand();
-    const configuracao = KAORI_ACTIONS[acao];
-
-    if (!configuracao) {
-        return interaction.reply({ content: 'Essa ação ainda não existe, bobinho.', ephemeral: true });
-    }
-
-    const autor = interaction.user;
-    let alvo = interaction.options.getUser('usuario');
-
-    if (configuracao.precisaAlvo && !alvo) {
-        alvo = autor;
-    }
-
-    await interaction.deferReply();
-
-    const gifUrl = await buscarGifKaori(configuracao.categoria);
-
-    if (!gifUrl) {
-        return interaction.editReply({ content: 'Hm... o meu fornecedor de GIFs resolveu dormir. Tenta de novo.' });
-    }
-
-    const frases = configuracao.frases;
-    const fraseBase = frases[Math.floor(Math.random() * frases.length)];
-    const frase = fraseBase
-        .replaceAll('{autor}', `<@${autor.id}>`)
-        .replaceAll('{alvo}', alvo ? `<@${alvo.id}>` : '');
-
-    const embed = criarEmbedAcao(autor, alvo, frase, gifUrl);
-
-    // =====================================================
-    // INTEGRAÇÃO AVANÇADA: Relacionamento + Conquistas
-    // =====================================================
     try {
-        const { incrementAction } = await import('./database/database.js');
-        incrementAction(interaction.guildId, autor.id, acao);
+        if (interaction.commandName === 'kaori') {
+            const acao = interaction.options.getSubcommand();
+            const configuracao = KAORI_ACTIONS[acao];
 
-        const { aplicarAcaoRelacionamento } = await import('./systems/relationship.js');
-        aplicarAcaoRelacionamento(autor.id, acao);
-
-        const { checkAndUnlock } = await import('./systems/achievements.js');
-        const novasConquistas = checkAndUnlock(autor.id, { action: acao });
-
-        // Responde o comando principal
-        await interaction.editReply({ embeds: [embed] });
-
-        // Notificação separada de conquista (estilo Loritta)
-        if (novasConquistas.length > 0) {
-            const { enviarConquista } = await import('./systems/notifications.js');
-            await enviarConquista(interaction, novasConquistas);
-        }
-    } catch (err) {
-        console.error('Erro na integração de progresso:', err.message);
-        // Mesmo com erro, ainda responde o comando
-        await interaction.editReply({ embeds: [embed] });
-    }
-
-    return; // ← agora o return está corretamente dentro do if
-}
-
-    // ---------- /ship ----------
-    if (interaction.commandName === 'ship') {
-        return executeShip(interaction);
-    }
-
-    // ---------- /perfil ----------
-    if (interaction.commandName === 'perfil') {
-        return executePerfil(interaction);
-    }
-
-    // ---------- /dado ----------
-    if (interaction.commandName === 'dado') {
-        return executeDado(interaction);
-    }
-
-    // ---------- /moeda ----------
-    if (interaction.commandName === 'moeda') {
-        return executeMoeda(interaction);
-    }
-
-    if (interaction.commandName === 'saldo') return executeSaldo(interaction);
-
-    if (interaction.commandName === 'diario') return executeDiario(interaction);
-
-    if (interaction.commandName === 'trabalhar') return executeTrabalhar(interaction);
-
-    if (interaction.commandName === 'pagar') return executePagar(interaction);
-
-    if (interaction.commandName === 'rank') return executeRank(interaction);
-
-    if (interaction.commandName === 'loja') return executeLoja(interaction);
-
-    if (interaction.commandName === 'comprar') return executeComprar(interaction);
-
-    if (interaction.commandName === 'relacionamento') return executeRelacionamento(interaction);
-
-    if (interaction.commandName === 'conquistas') return executeConquistas(interaction);
-
-    if (interaction.commandName === 'loja') return executeLoja(interaction);
-
-    if (interaction.commandName === 'comprar') return executeComprar(interaction);
-
-    if (interaction.commandName === 'inventario') return executeInventario(interaction);
-
-    if (interaction.commandName === 'usar') return executeUsar(interaction);
-
-    if (interaction.commandName === 'loja') return executeLoja(interaction);
-
-    if (interaction.commandName === 'comprar') return executeComprar(interaction);
-
-    if (interaction.commandName === 'inventario') return executeInventario(interaction);
-
-    if (interaction.commandName === 'usar') return executeUsar(interaction);
-
-    if (interaction.commandName === 'evento') return executeEvento(interaction);
-
-    if (interaction.commandName === 'missao') return executeMissao(interaction);
-
-    if (interaction.commandName === 'interagir') return executeInteragir(interaction);
-
-    if (interaction.commandName === 'colecao') return executeColecao(interaction);
-
-    if (interaction.commandName === 'presente') return executePresente(interaction);
-
-    if (interaction.commandName === 'segredo') return executeSegredo(interaction);
-
-    if (interaction.commandName === 'resetar-perfil') return executeResetar(interaction);
-
-    if (interaction.commandName === 'ajuda') return executeAjuda(interaction);
-
-    // ---------- /sorte ----------
-    if (interaction.commandName === 'sorte') {
-        return executeSorte(interaction);
-    }
-
-    // ---------- /verificar ----------
-    if (interaction.commandName === 'verificar') {
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: '🔎 Iniciando verificação dos membros...', ephemeral: true });
-        }
-
-        try {
-            const guild = interaction.guild;
-            const members = await guild.members.fetch();
-            let verificados = 0;
-            let alterados = 0;
-
-            for (const member of members.values()) {
-                if (member.user.bot) continue;
-
-                const tinhaCargo = member.roles.cache.has(ROLE_ID);
-                await verificarMembro(member);
-                const temCargoAgora = member.roles.cache.has(ROLE_ID);
-
-                verificados++;
-                if (tinhaCargo !== temCargoAgora) alterados++;
+            if (!configuracao) {
+                return safeReply(interaction, { content: 'Essa ação ainda não existe, bobinho.', ephemeral: true });
             }
 
-            await interaction.editReply({
-                content: `✅ **Verificação concluída!**\n\n👥 Membros verificados: **${verificados}**\n🔄 Cargos alterados: **${alterados}**`
-            });
-        } catch (error) {
-            console.error('❌ Erro no /verificar:', error);
-            await interaction.editReply({ content: '❌ Ocorreu um erro durante a verificação.' });
+            const autor = interaction.user;
+            let alvo = interaction.options.getUser('usuario');
+
+            if (configuracao.precisaAlvo && !alvo) {
+                alvo = autor;
+            }
+
+            await interaction.deferReply();
+
+            const gifUrl = await buscarGifKaori(configuracao.categoria);
+
+            if (!gifUrl) {
+                return interaction.editReply({ content: 'Hm... o meu fornecedor de GIFs resolveu dormir. Tenta de novo.' });
+            }
+
+            const frases = configuracao.frases;
+            const fraseBase = frases[Math.floor(Math.random() * frases.length)];
+            const frase = fraseBase
+                .replaceAll('{autor}', `<@${autor.id}>`)
+                .replaceAll('{alvo}', alvo ? `<@${alvo.id}>` : '');
+
+            const embed = criarEmbedAcao(autor, alvo, frase, gifUrl);
+
+            try {
+                const { incrementAction } = await import('./database/database.js');
+                await incrementAction(interaction.guildId, autor.id, acao);
+
+                const { aplicarAcaoRelacionamento } = await import('./systems/relationship.js');
+                await aplicarAcaoRelacionamento(interaction.guildId, autor.id, acao);
+
+                const { checkAndUnlock } = await import('./systems/achievements.js');
+                const novasConquistas = await checkAndUnlock(interaction.guildId, autor.id, { action: acao });
+
+                await interaction.editReply({ embeds: [embed] });
+
+                if (novasConquistas.length > 0) {
+                    const { enviarConquista } = await import('./systems/notifications.js');
+                    await enviarConquista(interaction, novasConquistas);
+                }
+            } catch (err) {
+                console.error('Erro na integração de progresso:', err.message);
+                await interaction.editReply({ embeds: [embed] });
+            }
+            return;
         }
-        return;
+
+        if (interaction.commandName === 'verificar') {
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({ content: '🔎 Iniciando verificação dos membros...', ephemeral: true });
+            }
+
+            try {
+                const guild = interaction.guild;
+                const members = await guild.members.fetch();
+                let verificados = 0;
+                let alterados = 0;
+
+                for (const member of members.values()) {
+                    if (member.user.bot) continue;
+
+                    const tinhaCargo = member.roles.cache.has(ROLE_ID);
+                    await verificarMembro(member);
+                    const temCargoAgora = member.roles.cache.has(ROLE_ID);
+
+                    verificados++;
+                    if (tinhaCargo !== temCargoAgora) alterados++;
+                }
+
+                await interaction.editReply({
+                    content: `✅ **Verificação concluída!**\n\n👥 Membros verificados: **${verificados}**\n🔄 Cargos alterados: **${alterados}**`
+                });
+            } catch (error) {
+                console.error('❌ Erro no /verificar:', error);
+                await interaction.editReply({ content: '❌ Ocorreu um erro durante a verificação.' });
+            }
+            return;
+        }
+
+        const handler = COMMAND_HANDLERS[interaction.commandName];
+        if (handler) {
+            await handler(interaction);
+            return;
+        }
+    } catch (error) {
+        console.error(`Erro no comando /${interaction.commandName}:`, error);
+        try {
+            const payload = {
+                content: 'Algo deu errado ao processar o comando. Tenta de novo em instantes.',
+                ephemeral: true
+            };
+            if (interaction.deferred || interaction.replied) {
+                await interaction.followUp(payload).catch(() => {});
+            } else {
+                await interaction.reply(payload).catch(() => {});
+            }
+        } catch {}
     }
 });
-
-/* =========================================================
-   EVENTOS DE MEMBRO
-   ========================================================= */
 
 client.on(Events.GuildMemberAdd, async (member) => {
     if (member.guild.id !== GUILD_ID) return;
@@ -390,10 +344,6 @@ client.on(Events.UserUpdate, async (oldUser, newUser) => {
     await verificarMembro(member, newUser);
 });
 
-/* =========================================================
-   MENSAGENS (Sistema de IA)
-   ========================================================= */
-
 client.on(Events.MessageCreate, async (message) => {
     if (processedMessages.has(message.id)) return;
     processedMessages.add(message.id);
@@ -405,13 +355,14 @@ client.on(Events.MessageCreate, async (message) => {
     if (!message.mentions.has(client.user)) return;
 
     const userId = message.author.id;
+    const guildId = message.guild.id;
     const agora = Date.now();
+    const scopeKey = `${guildId}:${userId}`;
 
-    // Rate limit
-    let registros = aiRateLimits.get(userId) || [];
+    let registros = aiRateLimits.get(scopeKey) || [];
     registros = registros.filter(t => agora - t < AI_RATE_LIMIT_WINDOW);
     registros.push(agora);
-    aiRateLimits.set(userId, registros);
+    aiRateLimits.set(scopeKey, registros);
 
     if (registros.length > AI_RATE_LIMIT_MAX) {
         const tempoRestante = AI_RATE_LIMIT_WINDOW - (agora - registros[registros.length - AI_RATE_LIMIT_MAX]);
@@ -419,8 +370,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.reply(`Você já falou demais comigo por enquanto. Espera mais **${minutos} min**.`);
     }
 
-    // Cooldown individual
-    const ultimoUso = aiCooldowns.get(userId) || 0;
+    const ultimoUso = aiCooldowns.get(scopeKey) || 0;
     const tempoRestante = AI_COOLDOWN - (agora - ultimoUso);
 
     if (tempoRestante > 0) {
@@ -432,7 +382,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.reply('Tem gente demais falando comigo ao mesmo tempo. Espera um pouquinho.');
     }
 
-    aiCooldowns.set(userId, agora);
+    aiCooldowns.set(scopeKey, agora);
 
     let pergunta = message.content
         .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '')
@@ -458,7 +408,7 @@ client.on(Events.MessageCreate, async (message) => {
     try {
         await message.channel.sendTyping();
 
-        let history = conversationHistory.get(userId) || [];
+        let history = conversationHistory.get(scopeKey) || [];
         const contextoUsuario = identificarUsuario(message.author.id);
 
         let resposta = null;
@@ -470,40 +420,37 @@ client.on(Events.MessageCreate, async (message) => {
                     parts: [{ text: m.content }]
                 }));
 
-// Busca o relacionamento do usuário (sistema local)
-let contextoRelacionamento = '';
-try {
-    const { getRelacionamento } = await import('./systems/relationship.js');
-    const rel = getRelacionamento(userId);
-    contextoRelacionamento = `
+                let contextoRelacionamento = '';
+                try {
+                    const { getRelacionamento } = await import('./systems/relationship.js');
+                    const rel = await getRelacionamento(guildId, userId);
+                    contextoRelacionamento = `
 Relacionamento atual com este usuário:
 Carinho: ${rel.carinho}/100 | Confiança: ${rel.confianca}/100 | Afinidade: ${rel.afinidade}/100
 Status: ${rel.status}
 `;
-} catch (e) {
-    // Se der erro, continua sem o relacionamento
-}
+                } catch (e) {}
 
-const contextoAtual =
-    `USUÁRIO ATUAL:\n${contextoUsuario}\n\n` +
-    contextoRelacionamento;
+                const contextoAtual =
+                    `USUÁRIO ATUAL:\n${contextoUsuario}\n\n` +
+                    contextoRelacionamento;
 
-const response = await ai.models.generateContent({
-    model: AI_MODEL,
-    contents: [
-        ...historyGemini,
-        {
-            role: 'user',
-            parts: [{
-                text: contextoAtual + `\n\nMENSAGEM:\n${pergunta}`
-            }]
-        }
-    ],
-    config: {
-        systemInstruction: PERSONALITY,
-        maxOutputTokens: MAX_OUTPUT_TOKENS
-    }
-});
+                const response = await ai.models.generateContent({
+                    model: AI_MODEL,
+                    contents: [
+                        ...historyGemini,
+                        {
+                            role: 'user',
+                            parts: [{
+                                text: contextoAtual + `\n\nMENSAGEM:\n${pergunta}`
+                            }]
+                        }
+                    ],
+                    config: {
+                        systemInstruction: PERSONALITY,
+                        maxOutputTokens: MAX_OUTPUT_TOKENS
+                    }
+                });
 
                 resposta = response.text?.trim();
                 if (resposta) break;
@@ -519,7 +466,6 @@ const response = await ai.models.generateContent({
             return message.reply('Hm... minha cabeça travou por um instante. Tenta me chamar de novo.');
         }
 
-        // Atualiza histórico
         history.push(
             { role: 'user', content: pergunta.substring(0, MAX_HISTORY_MESSAGE_LENGTH) },
             { role: 'assistant', content: resposta.substring(0, MAX_HISTORY_MESSAGE_LENGTH) }
@@ -527,9 +473,8 @@ const response = await ai.models.generateContent({
         if (history.length > MAX_HISTORY_MESSAGES * 2) {
             history = history.slice(-MAX_HISTORY_MESSAGES * 2);
         }
-        conversationHistory.set(userId, history);
+        conversationHistory.set(scopeKey, history);
 
-        // Envia resposta
         if (resposta.length <= 2000) {
             await message.reply(resposta);
         } else {
@@ -538,7 +483,6 @@ const response = await ai.models.generateContent({
                 await message.channel.send(parte);
             }
         }
-
     } catch (error) {
         if (error?.status === 401) {
             console.error('❌ GEMINI_API_KEY inválida.');
@@ -559,10 +503,6 @@ const response = await ai.models.generateContent({
         activeAIRequests--;
     }
 });
-
-/* =========================================================
-   LOGIN
-   ========================================================= */
 
 if (!TOKEN || TOKEN.length < 50) {
     console.error('❌ TOKEN inválido ou não definido.');

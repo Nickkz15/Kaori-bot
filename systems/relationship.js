@@ -13,11 +13,11 @@ const MODIFICADORES = {
     tickle:  { carinho: +2, confianca: +1, afinidade: +1 }
 };
 
-export function aplicarAcaoRelacionamento(userId, acao) {
+export async function aplicarAcaoRelacionamento(guildId, userId, acao) {
     const mods = MODIFICADORES[acao];
     if (!mods) return null;
 
-    const user = getUser(guildId, userId);
+    const user = await getUser(guildId, userId);
 
     const novo = {
         carinho: Math.max(0, Math.min(100, user.carinho + (mods.carinho || 0))),
@@ -25,12 +25,12 @@ export function aplicarAcaoRelacionamento(userId, acao) {
         afinidade: Math.max(0, Math.min(100, user.afinidade + (mods.afinidade || 0)))
     };
 
-    updateUser(guildId, userId, novo);
+    await updateUser(guildId, userId, novo);
     return novo;
 }
 
-export function getRelacionamento(userId) {
-    const user = getUser(guildId, userId);
+export async function getRelacionamento(guildId, userId) {
+    const user = await getUser(guildId, userId);
     const media = Math.round((user.carinho + user.confianca + user.afinidade) / 3);
 
     let status = 'Estranho';

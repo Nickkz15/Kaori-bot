@@ -13,6 +13,23 @@ function gerarAtributos(userId) {
     };
 }
 
+function resolverAtributos(userId, data) {
+    if (
+        data?.atributos &&
+        typeof data.atributos === 'object' &&
+        Number.isFinite(data.atributos.caos)
+    ) {
+        return {
+            caos: Number(data.atributos.caos) || 0,
+            sorte: Number(data.atributos.sorte) || 0,
+            charme: Number(data.atributos.charme) || 0,
+            inteligencia: Number(data.atributos.inteligencia) || 0,
+            energia: Number(data.atributos.energia) || 0
+        };
+    }
+    return gerarAtributos(userId);
+}
+
 function barra(valor, max = 100) {
     const cheios = Math.round((valor / max) * 10);
     return '█'.repeat(cheios) + '░'.repeat(10 - cheios) + ` ${valor}/${max}`;
@@ -32,10 +49,15 @@ export const perfilCommand = new SlashCommandBuilder()
     .addUserOption(o => o.setName('usuario').setDescription('De quem?').setRequired(false));
 
 export async function executePerfil(interaction) {
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
+    }
+
     const user = interaction.options.getUser('usuario') || interaction.user;
-    const attrs = gerarAtributos(user.id);
-    const data = getUser(guildId, user.id);
-    const inv = getInventory(user.id);
+    const data = await getUser(guildId, user.id);
+    const attrs = resolverAtributos(user.id, data);
+    const inv = await getInventory(guildId, user.id);
 
     const media = Math.round(((data.carinho || 0) + (data.confianca || 0) + (data.afinidade || 0)) / 3);
     let status = 'Estranho';
@@ -67,7 +89,11 @@ export async function executePerfil(interaction) {
             `🎁 ${data.presentes || 0} presentes · 🎟️ ${data.eventos || 0} eventos · 🔮 ${data.presentes_secretos || 0} secretos\n` +
             `🎒 ${inv.length} itens · Temporada ${data.temporada || 1}`
         )
-        .setFooter({ text: 'Atributos fixos por ID · Relacionamento dinâmico' })
+        .setFooter({
+            text: data.atributos
+                ? 'Atributos resetados · Relacionamento dinâmico'
+                : 'Atributos fixos por ID · Relacionamento dinâmico'
+        })
         .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });

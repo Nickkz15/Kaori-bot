@@ -7,8 +7,13 @@ export const saldoCommand = new SlashCommandBuilder()
     .addUserOption(o => o.setName('usuario').setDescription('Ver o saldo de outra pessoa').setRequired(false));
 
 export async function executeSaldo(interaction) {
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
+    }
+
     const user = interaction.options.getUser('usuario') || interaction.user;
-    const data = getUser(guildId, user.id);
+    const data = await getUser(guildId, user.id);
 
     const embed = new EmbedBuilder()
         .setColor(0xff4d6d)

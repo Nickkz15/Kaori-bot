@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { gerarLoja, tempoRestanteLoja, ITENS_CATALOGO, RARIDADE } from '../systems/economy.js';
+import { gerarLoja, tempoRestanteLoja, RARIDADE } from '../systems/economy.js';
 import { buyFromShop } from '../database/database.js';
 
 export const lojaCommand = new SlashCommandBuilder()
@@ -16,7 +16,12 @@ export const comprarCommand = new SlashCommandBuilder()
     );
 
 export async function executeLoja(interaction) {
-    const shop = gerarLoja();
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
+    }
+
+    const shop = await gerarLoja(guildId);
 
     if (!shop.items || shop.items.length === 0) {
         return interaction.reply({ content: 'A loja está vazia. Tente mais tarde.', ephemeral: true });
@@ -27,6 +32,8 @@ export async function executeLoja(interaction) {
         return `${r.emoji} ${i.nome}\nEstoque: \`${i.estoque}/${i.max}\` · **${i.preco.toLocaleString('pt-BR')}** coins · *${r.nome}*`;
     });
 
+    const tempo = await tempoRestanteLoja(guildId);
+
     const embed = new EmbedBuilder()
         .setColor(0xff4d6d)
         .setTitle('🛍️ Loja da Kaori')
@@ -35,14 +42,19 @@ export async function executeLoja(interaction) {
             name: 'Como comprar',
             value: '`/comprar item:cafe` (use o id: cafe, chocolate, ticket, ursinho...)'
         })
-        .setFooter({ text: `🔄 Próxima atualização: ${tempoRestanteLoja()}` });
+        .setFooter({ text: `🔄 Próxima atualização: ${tempo}` });
 
     await interaction.reply({ embeds: [embed] });
 }
 
 export async function executeComprar(interaction) {
+    const guildId = interaction.guildId;
+    if (!guildId) {
+        return interaction.reply({ content: 'Este comando só funciona em servidores.', ephemeral: true });
+    }
+
     const itemId = interaction.options.getString('item').toLowerCase().trim();
-    const result = buyFromShop(interaction.user.id, itemId);
+    const result = await buyFromShop(guildId, interaction.user.id, itemId);
 
     if (!result.ok) {
         return interaction.reply({ content: result.msg, ephemeral: true });
