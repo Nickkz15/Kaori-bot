@@ -183,7 +183,6 @@ export function buildPublicEmbed({ number, content, color, imageUrl, config, bot
     const num = formatNumber(number);
     const parsedColor = parseColor(color, config.default_color) || 0xEB459E;
 
-    // Número + texto entre aspas + coração no autor (sem > de citação)
     const body =
         `✦・**${num}**\n\n` +
         `"${content}"\n\n` +
@@ -197,12 +196,10 @@ export function buildPublicEmbed({ number, content, color, imageUrl, config, bot
         })
         .setDescription(body);
 
-    // Anexo do usuário = imagem grande (destaque intencional)
-    // GIF decorativo = thumbnail pequeno (não rouba o foco do texto)
-    if (imageUrl) {
-        embed.setImage(imageUrl);
-    } else if (decorUrl) {
-        embed.setThumbnail(decorUrl);
+    // Anexo do usuário OU GIF decorativo — imagem principal (API do Discord só tem grande ou thumbnail)
+    const mainImage = imageUrl || decorUrl || null;
+    if (mainImage) {
+        embed.setImage(mainImage);
     }
 
     const footerBits = ['✧ Kaori · Confess', 'anônimo'];
