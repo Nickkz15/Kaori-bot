@@ -183,12 +183,10 @@ export function buildPublicEmbed({ number, content, color, imageUrl, config, bot
     const num = formatNumber(number);
     const parsedColor = parseColor(color, config.default_color) || 0xEB459E;
 
-    // Símbolos discretos + legível (coração no autor anônimo)
+    // Número + texto entre aspas + coração no autor (sem > de citação)
     const body =
-        `✦・**${num}**\n` +
-        `┊\n` +
-        `> ${content.split('\n').join('\n> ')}\n` +
-        `┊\n` +
+        `✦・**${num}**\n\n` +
+        `"${content}"\n\n` +
         `♡ ・ *${authorName}*`;
 
     const embed = new EmbedBuilder()
@@ -199,10 +197,12 @@ export function buildPublicEmbed({ number, content, color, imageUrl, config, bot
         })
         .setDescription(body);
 
-    // Imagem do usuário tem prioridade; senão um decor suave (GIF/API), nunca os dois + thumbnail
-    const mainImage = imageUrl || decorUrl || null;
-    if (mainImage) {
-        embed.setImage(mainImage);
+    // Anexo do usuário = imagem grande (destaque intencional)
+    // GIF decorativo = thumbnail pequeno (não rouba o foco do texto)
+    if (imageUrl) {
+        embed.setImage(imageUrl);
+    } else if (decorUrl) {
+        embed.setThumbnail(decorUrl);
     }
 
     const footerBits = ['✧ Kaori · Confess', 'anônimo'];
