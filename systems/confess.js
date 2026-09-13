@@ -18,6 +18,7 @@ import {
     getLastConfessionTime,
     claimLatestConfessionButtons
 } from './confessDb.js';
+import { buscarGifKaori } from './nekos.js';
 
 const COLOR_NAMES = {
     red: '#FF0000',
@@ -176,16 +177,17 @@ export function formatNumber(n) {
     return `(#${String(n).padStart(3, '0')}º)`;
 }
 
-export function buildPublicEmbed({ number, content, color, imageUrl, config, botAvatarUrl }) {
+export function buildPublicEmbed({ number, content, color, imageUrl, config, botAvatarUrl, decorUrl }) {
     const title = config.confession_title || 'Confissão Anônima';
     const authorName = config.confession_author || 'Anonymous';
     const num = formatNumber(number);
     const parsedColor = parseColor(color, config.default_color) || 0xEB459E;
 
+    // Texto limpo e legível — um detalhe visual discreto, sem poluir
     const body =
-        `✦・**${num}**\n\n` +
-        `> ${content.split('\n').join('\n> ')}\n\n` +
-        `♡ ・ *${authorName}*`;
+        `**${num}**\n\n` +
+        `${content}\n\n` +
+        `— *${authorName}*`;
 
     const embed = new EmbedBuilder()
         .setColor(parsedColor)
@@ -195,17 +197,15 @@ export function buildPublicEmbed({ number, content, color, imageUrl, config, bot
         })
         .setDescription(body);
 
-    if (imageUrl) {
-        embed.setImage(imageUrl);
+    // Imagem do usuário tem prioridade; senão um decor suave (GIF/API), nunca os dois + thumbnail
+    const mainImage = imageUrl || decorUrl || null;
+    if (mainImage) {
+        embed.setImage(mainImage);
     }
 
-    if (botAvatarUrl) {
-        embed.setThumbnail(botAvatarUrl);
-    }
-
-    const footerBits = ['Kaori Confess'];
+    const footerBits = ['Kaori · Confess', 'anônimo'];
     if (config.confession_footer) footerBits.push(config.confession_footer);
-    embed.setFooter({ text: footerBits.join(' · '), iconURL: botAvatarUrl || undefined });
+    embed.setFooter({ text: footerBits.join(' · ') });
     embed.setTimestamp();
 
     return embed;
@@ -325,11 +325,20 @@ export async function submitConfession({
 
     let botAvatarUrl = null;
     try {
-        botAvatarUrl = client?.user?.displayAvatarURL?.({ size: 128 })
-            || guild.members.me?.user?.displayAvatarURL?.({ size: 128 })
+        botAvatarUrl = client?.user?.displayAvatarURL?.({ size: 64 })
+            || guild.members.me?.user?.displayAvatarURL?.({ size: 64 })
             || null;
     } catch {
         botAvatarUrl = null;
+    }
+
+    // Sem anexo do usuário: um GIF suave (nekos.best, mesmo estilo do /kaori) só para preencher
+    // Com anexo: não busca decor — evita poluir
+    let decorUrl = null;
+    if (!img.url) {
+        const soft = ['stare', 'wave', 'blush', 'pat', 'sleep'];
+        const cat = soft[number % soft.length];
+        decorUrl = await buscarGifKaori(cat).catch(() => null);
     }
 
     const publicEmbed = buildPublicEmbed({
@@ -338,7 +347,8 @@ export async function submitConfession({
         color,
         imageUrl: img.url,
         config,
-        botAvatarUrl
+        botAvatarUrl,
+        decorUrl
     });
 
     const actionRow = buildLatestConfessionButtons();
