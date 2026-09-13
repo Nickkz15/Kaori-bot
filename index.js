@@ -53,6 +53,16 @@ import { segredoCommand, executeSegredo } from './commands/segredo.js';
 import { resetarCommand, executeResetar } from './commands/resetar.js';
 import { ajudaCommand, executeAjuda } from './commands/ajuda.js';
 
+import { confessCommand, executeConfess, handleConfessModal, handleConfessButton } from './commands/confess.js';
+import { confessbanCommand, executeConfessban } from './commands/confessban.js';
+import { confessunbanCommand, executeConfessunban } from './commands/confessunban.js';
+import { confessbanlistCommand, executeConfessbanlist } from './commands/confessbanlist.js';
+import { logschannelCommand, executeLogschannel } from './commands/logschannel.js';
+import { poolCommand, executePool } from './commands/pool.js';
+import { configCommand, executeConfig } from './commands/config.js';
+import { ensureConfessSchema } from './systems/confessDb.js';
+import { handlePollVote } from './systems/confessPoll.js';
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -147,7 +157,14 @@ const COMMAND_HANDLERS = {
     presente: executePresente,
     segredo: executeSegredo,
     'resetar-perfil': executeResetar,
-    ajuda: executeAjuda
+    ajuda: executeAjuda,
+    confess: executeConfess,
+    confessban: executeConfessban,
+    confessunban: executeConfessunban,
+    confessbanlist: executeConfessbanlist,
+    logschannel: executeLogschannel,
+    pool: executePool,
+    config: executeConfig
 };
 
 client.once(Events.ClientReady, async (bot) => {
@@ -157,6 +174,8 @@ client.once(Events.ClientReady, async (bot) => {
 
     try {
         await initDatabase();
+        await ensureConfessSchema();
+        console.log('✅ Sistema Confess (PostgreSQL) pronto.');
     } catch (err) {
         console.error('❌ Falha ao inicializar PostgreSQL:', err.message);
         process.exit(1);
@@ -195,7 +214,14 @@ client.once(Events.ClientReady, async (bot) => {
                     relacionamentoCommand.toJSON(),
                     conquistasCommand.toJSON(),
                     resetarCommand.toJSON(),
-                    ajudaCommand.toJSON()
+                    ajudaCommand.toJSON(),
+                    confessCommand.toJSON(),
+                    confessbanCommand.toJSON(),
+                    confessunbanCommand.toJSON(),
+                    confessbanlistCommand.toJSON(),
+                    logschannelCommand.toJSON(),
+                    poolCommand.toJSON(),
+                    configCommand.toJSON()
                 ]
             }
         );
@@ -212,10 +238,32 @@ client.once(Events.ClientReady, async (bot) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-    if (interaction.guildId !== GUILD_ID) return;
+    if (interaction.guildId && interaction.guildId !== GUILD_ID) return;
 
     try {
+        // ---------- Modal Confess ----------
+        if (interaction.isModalSubmit() && interaction.customId === 'confess_modal') {
+            await handleConfessModal(interaction);
+            return;
+        }
+
+        // ---------- Buttons ----------
+        if (interaction.isButton()) {
+            if (interaction.customId === 'confess_open_modal') {
+                await handleConfessButton(interaction);
+                return;
+            }
+            if (interaction.customId.startsWith('confess_poll_vote:')) {
+                const parts = interaction.customId.split(':');
+                const pollId = Number(parts[1]);
+                const optionIndex = Number(parts[2]);
+                await handlePollVote(interaction, pollId, optionIndex);
+                return;
+            }
+        }
+
+        if (!interaction.isChatInputCommand()) return;
+
         if (interaction.commandName === 'kaori') {
             const acao = interaction.options.getSubcommand();
             const configuracao = KAORI_ACTIONS[acao];
