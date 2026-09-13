@@ -2,7 +2,10 @@ import {
     EmbedBuilder,
     ActionRowBuilder,
     ButtonBuilder,
-    ButtonStyle
+    ButtonStyle,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle
 } from 'discord.js';
 import {
     getConfessConfig,
@@ -151,4 +154,49 @@ export async function handlePollVote(interaction, pollId, optionIndex) {
             await interaction.message.edit({ embeds: [embed], components }).catch(() => {});
         }
     }
+}
+
+
+export function buildPollModal() {
+    const modal = new ModalBuilder()
+        .setCustomId('confess_poll_modal')
+        .setTitle('📊 Nova enquete anônima');
+
+    const pergunta = new TextInputBuilder()
+        .setCustomId('poll_question')
+        .setLabel('Pergunta')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Ex: Qual deve ser o próximo evento?')
+        .setRequired(true)
+        .setMaxLength(256);
+
+    const opcoes = new TextInputBuilder()
+        .setCustomId('poll_options')
+        .setLabel('Opções (separe com ; )')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('Anime; Jogos; Música')
+        .setRequired(true)
+        .setMaxLength(500);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(pergunta),
+        new ActionRowBuilder().addComponents(opcoes)
+    );
+    return modal;
+}
+
+export async function handlePollModal(interaction) {
+    const question = interaction.fields.getTextInputValue('poll_question');
+    const options = interaction.fields.getTextInputValue('poll_options');
+    await interaction.deferReply({ ephemeral: true });
+    const result = await createAnonymousPoll({
+        guild: interaction.guild,
+        user: interaction.user,
+        question,
+        options
+    });
+    if (!result.ok) {
+        return interaction.editReply({ content: result.msg });
+    }
+    return interaction.editReply({ content: `${result.msg}\n${result.url || ''}` });
 }

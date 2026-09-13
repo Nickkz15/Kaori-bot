@@ -15,7 +15,8 @@ import {
     insertConfession,
     updateConfessionPublic,
     isConfessBanned,
-    getLastConfessionTime
+    getLastConfessionTime,
+    claimLatestConfessionButtons
 } from './confessDb.js';
 
 const COLOR_NAMES = {
@@ -175,26 +176,55 @@ export function formatNumber(n) {
     return `(#${String(n).padStart(3, '0')}º)`;
 }
 
-export function buildPublicEmbed({ number, content, color, imageUrl, config }) {
-    const title = config.confession_title || 'Anonymous Confession';
+export function buildPublicEmbed({ number, content, color, imageUrl, config, botAvatarUrl }) {
+    const title = config.confession_title || 'Confissão Anônima';
     const authorName = config.confession_author || 'Anonymous';
     const num = formatNumber(number);
+    const parsedColor = parseColor(color, config.default_color) || 0xEB459E;
+
+    const body =
+        `✦・**${num}**\n\n` +
+        `> ${content.split('\n').join('\n> ')}\n\n` +
+        `♡ ・ *${authorName}*`;
 
     const embed = new EmbedBuilder()
-        .setColor(parseColor(color, config.default_color) || 0x5865F2)
-        .setAuthor({ name: `${title}  ·  ${num}` })
-        .setDescription(`"${content}"`);
+        .setColor(parsedColor)
+        .setAuthor({
+            name: `💭 ${title}`,
+            iconURL: botAvatarUrl || undefined
+        })
+        .setDescription(body);
 
     if (imageUrl) {
         embed.setImage(imageUrl);
     }
 
-    const footerParts = [authorName];
-    if (config.confession_footer) footerParts.push(config.confession_footer);
-    embed.setFooter({ text: footerParts.join(' · ') });
+    if (botAvatarUrl) {
+        embed.setThumbnail(botAvatarUrl);
+    }
+
+    const footerBits = ['Kaori Confess'];
+    if (config.confession_footer) footerBits.push(config.confession_footer);
+    embed.setFooter({ text: footerBits.join(' · '), iconURL: botAvatarUrl || undefined });
     embed.setTimestamp();
 
     return embed;
+}
+
+/** Botões fixos da última confissão */
+export function buildLatestConfessionButtons() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('confess_make_confession')
+            .setLabel('Faça sua confissão')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('💬'),
+        new ButtonBuilder()
+            .setCustomId('confess_open_poll')
+            .setLabel('Abra uma enquete')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📊')
+    );
 }
 
 export function buildLogEmbed({ number, user, content, color, imageUrl, channel, messageUrl, source }) {
@@ -293,18 +323,31 @@ export async function submitConfession({
         source
     });
 
+    let botAvatarUrl = null;
+    try {
+        botAvatarUrl = client?.user?.displayAvatarURL?.({ size: 128 })
+            || guild.members.me?.user?.displayAvatarURL?.({ size: 128 })
+            || null;
+    } catch {
+        botAvatarUrl = null;
+    }
+
     const publicEmbed = buildPublicEmbed({
         number,
         content: text,
         color,
         imageUrl: img.url,
-        config
+        config,
+        botAvatarUrl
     });
+
+    const actionRow = buildLatestConfessionButtons();
 
     let publicMessage;
     try {
         publicMessage = await channel.send({
             embeds: [publicEmbed],
+            components: [actionRow],
             allowedMentions: { parse: [] }
         });
     } catch (err) {
@@ -318,6 +361,36 @@ export async function submitConfession({
         public_message_id: publicMessage.id,
         public_message_url: messageUrl
     }).catch((e) => console.error('Confess update public ids:', e.message));
+
+    // Somente a confissão mais recente mantém os botões
+    try {
+        const claim = await claimLatestConfessionButtons(
+            guildId,
+            publicMessage.id,
+            channel.id,
+            number
+        );
+        if (!claim.isLatest) {
+            await publicMessage.edit({ components: [] }).catch(() => {});
+        } else if (claim.previousMessageId && claim.previousChannelId) {
+            try {
+                const prevCh =
+                    claim.previousChannelId === channel.id
+                        ? channel
+                        : await guild.channels.fetch(claim.previousChannelId).catch(() => null);
+                if (prevCh?.isTextBased?.()) {
+                    const prevMsg = await prevCh.messages.fetch(claim.previousMessageId).catch(() => null);
+                    if (prevMsg && prevMsg.editable) {
+                        await prevMsg.edit({ components: [] }).catch(() => {});
+                    }
+                }
+            } catch (e) {
+                console.error('Confess strip previous buttons:', e.message);
+            }
+        }
+    } catch (e) {
+        console.error('Confess claim latest buttons:', e.message);
+    }
 
     if (config.logs_channel_id) {
         try {

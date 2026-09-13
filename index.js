@@ -61,7 +61,7 @@ import { logschannelCommand, executeLogschannel } from './commands/logschannel.j
 import { poolCommand, executePool } from './commands/pool.js';
 import { configCommand, executeConfig } from './commands/config.js';
 import { ensureConfessSchema } from './systems/confessDb.js';
-import { handlePollVote } from './systems/confessPoll.js';
+import { handlePollVote, handlePollModal, buildPollModal } from './systems/confessPoll.js';
 
 const client = new Client({
     intents: [
@@ -241,17 +241,33 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.guildId && interaction.guildId !== GUILD_ID) return;
 
     try {
-        // ---------- Modal Confess ----------
-        if (interaction.isModalSubmit() && interaction.customId === 'confess_modal') {
-            await handleConfessModal(interaction);
-            return;
+        // ---------- Modal Confess / Poll ----------
+        if (interaction.isModalSubmit()) {
+            if (interaction.customId === 'confess_modal') {
+                await handleConfessModal(interaction);
+                return;
+            }
+            if (interaction.customId === 'confess_poll_modal') {
+                await handlePollModal(interaction);
+                return;
+            }
         }
 
         // ---------- Buttons ----------
         if (interaction.isButton()) {
-            if (interaction.customId === 'confess_open_modal') {
+            // Botão legado do /config botao + botão da última confissão
+            if (
+                interaction.customId === 'confess_open_modal' ||
+                interaction.customId === 'confess_make_confession'
+            ) {
                 await handleConfessButton(interaction);
                 return;
+            }
+            if (interaction.customId === 'confess_open_poll') {
+                if (!interaction.guildId) {
+                    return interaction.reply({ content: 'Só em servidores.', ephemeral: true });
+                }
+                return interaction.showModal(buildPollModal());
             }
             if (interaction.customId.startsWith('confess_poll_vote:')) {
                 const parts = interaction.customId.split(':');

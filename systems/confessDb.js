@@ -84,6 +84,10 @@ export async function ensureConfessSchema() {
         CREATE INDEX IF NOT EXISTS idx_confess_bans_guild ON confess_bans (guild_id);
         CREATE INDEX IF NOT EXISTS idx_confess_polls_guild ON confess_polls (guild_id, status);
         CREATE INDEX IF NOT EXISTS idx_confess_poll_votes_poll ON confess_poll_votes (poll_id);
+
+        ALTER TABLE confess_configs ADD COLUMN IF NOT EXISTS latest_button_message_id TEXT;
+        ALTER TABLE confess_configs ADD COLUMN IF NOT EXISTS latest_button_channel_id TEXT;
+        ALTER TABLE confess_configs ADD COLUMN IF NOT EXISTS latest_button_number INTEGER NOT NULL DEFAULT 0;
     `);
 }
 
@@ -107,7 +111,10 @@ const DEFAULT_CONFIG = {
     confession_button_text: 'Enviar uma confissão',
     poll_button_text: 'Votar',
     success_message: 'Pronto! Sua confissão foi enviada de forma anônima. ✨',
-    banned_words: []
+    banned_words: [],
+    latest_button_message_id: null,
+    latest_button_channel_id: null,
+    latest_button_number: 0
 };
 
 export async function getConfessConfig(guildId) {
@@ -135,7 +142,8 @@ export async function updateConfessConfig(guildId, patch) {
         'word_filter_enabled', 'cooldown_enabled', 'cooldown_seconds',
         'min_account_age_enabled', 'min_account_age_days', 'default_color',
         'confession_title', 'confession_author', 'confession_footer',
-        'confession_button_text', 'poll_button_text', 'success_message', 'banned_words'
+        'confession_button_text', 'poll_button_text', 'success_message', 'banned_words',
+        'latest_button_message_id', 'latest_button_channel_id', 'latest_button_number'
     ];
     const sets = [];
     const values = [guildId];
@@ -318,4 +326,75 @@ export async function getPollCounts(pollId) {
     const counts = options.map((_, i) => 0);
     for (const v of votes.rows) counts[v.option_index] = v.c;
     return { poll, counts };
+}
+
+
+/**
+ * Atomic: claim this confession as the only one with action buttons.
+ * Returns previous message/channel to strip, or null if this confession is stale.
+ */
+export async function claimLatestConfessionButtons(guildId, messageId, channelId, confessionNumber) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const cur = await client.query(
+            `SELECT latest_button_message_id, latest_button_channel_id, latest_button_number
+             FROM confess_configs WHERE guild_id = $1 FOR UPDATE`,
+            [guildId]
+        );
+        let row = cur.rows[0];
+        if (!row) {
+            await client.query(
+                `INSERT INTO confess_configs (guild_id, latest_button_message_id, latest_button_channel_id, latest_button_number)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (guild_id) DO NOTHING`,
+                [guildId, messageId, channelId, confessionNumber]
+            );
+            const again = await client.query(
+                `SELECT latest_button_message_id, latest_button_channel_id, latest_button_number
+                 FROM confess_configs WHERE guild_id = $1 FOR UPDATE`,
+                [guildId]
+            );
+            row = again.rows[0] || {
+                latest_button_message_id: null,
+                latest_button_channel_id: null,
+                latest_button_number: 0
+            };
+        }
+
+        const prevNum = Number(row.latest_button_number) || 0;
+        const prevMsg = row.latest_button_message_id;
+        const prevCh = row.latest_button_channel_id;
+
+        if (confessionNumber < prevNum) {
+            await client.query('COMMIT');
+            return { isLatest: false, previousMessageId: null, previousChannelId: null };
+        }
+
+        await client.query(
+            `UPDATE confess_configs
+             SET latest_button_message_id = $2,
+                 latest_button_channel_id = $3,
+                 latest_button_number = $4,
+                 updated_at = NOW()
+             WHERE guild_id = $1`,
+            [guildId, messageId, channelId, confessionNumber]
+        );
+        await client.query('COMMIT');
+
+        const previousMessageId =
+            prevMsg && prevMsg !== messageId ? prevMsg : null;
+        const previousChannelId = previousMessageId ? prevCh : null;
+
+        return {
+            isLatest: true,
+            previousMessageId,
+            previousChannelId
+        };
+    } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw e;
+    } finally {
+        client.release();
+    }
 }
