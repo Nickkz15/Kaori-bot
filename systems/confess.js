@@ -183,11 +183,13 @@ export function buildPublicEmbed({ number, content, color, imageUrl, config, bot
     const num = formatNumber(number);
     const parsedColor = parseColor(color, config.default_color) || 0xEB459E;
 
-    // Texto limpo e legível — um detalhe visual discreto, sem poluir
+    // Símbolos discretos + legível (coração no autor anônimo)
     const body =
-        `**${num}**\n\n` +
-        `${content}\n\n` +
-        `— *${authorName}*`;
+        `✦・**${num}**\n` +
+        `┊\n` +
+        `> ${content.split('\n').join('\n> ')}\n` +
+        `┊\n` +
+        `♡ ・ *${authorName}*`;
 
     const embed = new EmbedBuilder()
         .setColor(parsedColor)
@@ -203,7 +205,7 @@ export function buildPublicEmbed({ number, content, color, imageUrl, config, bot
         embed.setImage(mainImage);
     }
 
-    const footerBits = ['Kaori · Confess', 'anônimo'];
+    const footerBits = ['✧ Kaori · Confess', 'anônimo'];
     if (config.confession_footer) footerBits.push(config.confession_footer);
     embed.setFooter({ text: footerBits.join(' · ') });
     embed.setTimestamp();
