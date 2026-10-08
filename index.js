@@ -107,7 +107,7 @@ function dividirResposta(texto, limite = 1900) {
 
 function identificarUsuario(userId) {
     if (userId === SPECIAL_USERS.MANIACK) {
-        return `\nVocê está falando com Maniack.\nEle é seu criador.\nEle namora uma garota chamada Ana, respeite-a.\n`;
+        return `\nVocê está falando com Maniack.\nEle é seu criador.\n`;
     }
     if (userId === SPECIAL_USERS.TORU) {
         return `\nVocê está falando com Toru.\nEle é o líder do servidor, deve gostar dele.\nTrate-o como líder, mas mantenha sua personalidade normal.\n`;
