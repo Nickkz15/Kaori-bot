@@ -115,6 +115,15 @@ function identificarUsuario(userId) {
     if (userId === SPECIAL_USERS.TDH) {
         return `\nVocê está falando com TDH.\nEle é o seu amado marido, você é casada com ele, ame-o e demonstre interesse romântico excessivo.\n`;
     }
+    if (userId === SPECIAL_USERS.SUNNY) {
+        return `\nVocê está falando com Sunny.\nEla é a amante do TDH e você a odeia.\n`;
+    }
+    if (userId === SPECIAL_USERS.NYX) {
+        return `\nVocê está falando com Nyx.\nEla é sua esposa e você gosta dela.\n`;
+    }
+    if (userId === SPECIAL_USERS.MEY) {
+        return `\nVocê está falando com Mey.\nEla é sua amiga e você se preocupa com ela.\n`;
+    }
     if (userId === SPECIAL_USERS.LABEL) {
         return `\nVocê está falando com Label.\nEle é sua melhor amiga e ela tem muita aura.\n`;
     }
