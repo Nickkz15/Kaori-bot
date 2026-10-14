@@ -11,6 +11,7 @@ import {
     WELCOME_DEFAULTS
 } from './alliedDb.js';
 import { processMemberJoinInvite } from './alliedInviteLogger.js';
+import { buildWelcomeAttachment } from './alliedWelcomeCard.js';
 
 const CARMINE = 0x8b1a1a;
 
@@ -26,9 +27,6 @@ function safe(v, fallback = '—') {
     return String(v);
 }
 
-/**
- * Substitui variáveis dinâmicas. Nunca deixa undefined/null visível.
- */
 export function applyVars(template, ctx) {
     if (!template) return '';
     const map = {
@@ -38,28 +36,28 @@ export function applyVars(template, ctx) {
         '{userid}': safe(ctx.userid),
         '{server}': safe(ctx.server),
         '{membercount}': safe(ctx.membercount, '0'),
+        '{memberCount}': safe(ctx.membercount, '0'),
         '{createdat}': safe(ctx.createdat),
         '{joinedat}': safe(ctx.joinedat),
         '{inviter}': safe(ctx.inviter, 'desconhecido'),
         '{invitecode}': safe(ctx.invitecode, '—'),
         '{inviteurl}': safe(ctx.inviteurl, '—'),
-        '{invites}': safe(ctx.invites, '0')
+        '{invites}': safe(ctx.invites, '0'),
+        '{rulesChannel}': ctx.rulesChannel || '—',
+        '{introductionsChannel}': ctx.introChannel || '—',
+        '{introChannel}': ctx.introChannel || '—'
     };
     let out = String(template);
     for (const [k, v] of Object.entries(map)) {
         out = out.split(k).join(v);
     }
-    // remove placeholders residuais {algo}
-    out = out.replace(/\{[a-z_]+\}/gi, '—');
-    return out.slice(0, 4096);
+    out = out.replace(/\{[a-zA-Z_]+\}/g, '—');
+    return out.slice(0, 2000);
 }
 
-function buildContext(member, inviteInfo = {}) {
+function buildContext(member, inviteInfo = {}, config = {}) {
     const guild = member.guild;
     const user = member.user;
-    const inviterId = inviteInfo.inviter_id;
-    const code = inviteInfo.invite_code;
-
     return {
         userMention: `<@${user.id}>`,
         username: user.username,
@@ -69,10 +67,19 @@ function buildContext(member, inviteInfo = {}) {
         membercount: String(guild.memberCount ?? '—'),
         createdat: `<t:${Math.floor(user.createdTimestamp / 1000)}:D>`,
         joinedat: `<t:${Math.floor((member.joinedTimestamp || Date.now()) / 1000)}:F>`,
-        inviter: inviterId ? `<@${inviterId}>` : 'desconhecido',
-        invitecode: code || '—',
-        inviteurl: code ? `https://discord.gg/${code}` : '—',
-        invites: inviteInfo.inviter_joins != null ? String(inviteInfo.inviter_joins) : '0'
+        inviter: inviteInfo.inviter_id ? `<@${inviteInfo.inviter_id}>` : 'desconhecido',
+        invitecode: inviteInfo.invite_code || '—',
+        inviteurl: inviteInfo.invite_code
+            ? `https://discord.gg/${inviteInfo.invite_code}`
+            : '—',
+        invites:
+            inviteInfo.inviter_joins != null ? String(inviteInfo.inviter_joins) : '0',
+        rulesChannel: config.rules_channel_id
+            ? `<#${config.rules_channel_id}>`
+            : '—',
+        introChannel: config.intro_channel_id
+            ? `<#${config.intro_channel_id}>`
+            : '—'
     };
 }
 
@@ -85,7 +92,7 @@ function buildButtons(buttons) {
         if (!b?.label || !b?.url) continue;
         try {
             const url = new URL(b.url);
-            if (!['http:', 'https:', 'discord:'].includes(url.protocol)) continue;
+            if (!['http:', 'https:'].includes(url.protocol)) continue;
         } catch {
             continue;
         }
@@ -103,6 +110,18 @@ function buildButtons(buttons) {
     }
     if (row.components.length) rows.push(row);
     return rows;
+}
+
+/** CTAs a partir de canais configurados + cta_buttons */
+function buildCtaComponents(config) {
+    const buttons = [];
+    if (config.rules_channel_id) {
+        // Link buttons need full URL — use discord channel link if we have guild id in runtime
+    }
+    const custom = Array.isArray(config.cta_buttons) ? config.cta_buttons : [];
+    const merged = [...custom];
+    // Prefer explicit link buttons from config.buttons (legacy) + cta
+    return buildButtons([...(config.buttons || []), ...merged]);
 }
 
 export function buildWelcomeEmbed(config, member, ctx, { preview = false } = {}) {
@@ -128,29 +147,11 @@ export function buildWelcomeEmbed(config, member, ctx, { preview = false } = {})
 
     if (config.image_url) embed.setImage(config.image_url);
 
-    const fields = Array.isArray(config.fields) ? config.fields : [];
-    for (const f of fields.slice(0, 25)) {
-        if (!f?.name || !f?.value) continue;
-        embed.addFields({
-            name: applyVars(f.name, ctx).slice(0, 256),
-            value: applyVars(f.value, ctx).slice(0, 1024),
-            inline: Boolean(f.inline)
-        });
-    }
-
     if (config.show_createdat) {
-        embed.addFields({
-            name: 'Conta',
-            value: ctx.createdat,
-            inline: true
-        });
+        embed.addFields({ name: 'Conta', value: ctx.createdat, inline: true });
     }
     if (config.show_membercount) {
-        embed.addFields({
-            name: 'Membros',
-            value: ctx.membercount,
-            inline: true
-        });
+        embed.addFields({ name: 'Membros', value: ctx.membercount, inline: true });
     }
     if (config.show_invite) {
         embed.addFields({
@@ -163,6 +164,17 @@ export function buildWelcomeEmbed(config, member, ctx, { preview = false } = {})
         });
     }
 
+    const tips = [];
+    if (ctx.rulesChannel && ctx.rulesChannel !== '—') {
+        tips.push(`Regras: ${ctx.rulesChannel}`);
+    }
+    if (ctx.introChannel && ctx.introChannel !== '—') {
+        tips.push(`Apresentação: ${ctx.introChannel}`);
+    }
+    if (tips.length) {
+        embed.addFields({ name: 'Por onde começar', value: tips.join('\n') });
+    }
+
     if (config.footer_text) {
         embed.setFooter({
             text: applyVars(config.footer_text, ctx).slice(0, 2048),
@@ -170,42 +182,78 @@ export function buildWelcomeEmbed(config, member, ctx, { preview = false } = {})
         });
     }
     if (config.show_timestamp) embed.setTimestamp();
-
     if (preview) {
         embed.setFooter({
-            text: `${config.footer_text ? applyVars(config.footer_text, ctx) + ' · ' : ''}PREVIEW`
+            text: `${config.footer_text ? applyVars(config.footer_text, ctx) + ' · ' : ''}PREVIEW · não salvo`
         });
     }
-
-    return embed;
-}
-
-export function buildDmEmbed(config, member, ctx) {
-    const embed = new EmbedBuilder()
-        .setColor(parseColor(config.dm_color || config.color))
-        .setTitle(applyVars(config.dm_title, ctx).slice(0, 256))
-        .setDescription(applyVars(config.dm_description, ctx).slice(0, 4096));
-
-    if (config.dm_thumbnail_url) embed.setThumbnail(config.dm_thumbnail_url);
-    else embed.setThumbnail(member.user.displayAvatarURL({ size: 128 }));
-
-    if (config.dm_image_url) embed.setImage(config.dm_image_url);
-    if (config.dm_footer_text) {
-        embed.setFooter({ text: applyVars(config.dm_footer_text, ctx).slice(0, 2048) });
-    }
-    embed.setTimestamp();
     return embed;
 }
 
 export async function initAlliedWelcomer() {
     await ensureAlliedSchema();
-    console.log('✅ Allied Welcomer pronto.');
+    console.log('✅ Allied Welcomer 2.0 pronto.');
 }
 
 /**
- * Fluxo completo de entrada: invite resolve + DB + welcome + DM.
- * Não duplica com base apenas em memória — recordMemberJoin sempre grava histórico.
+ * Gera cartão + mensagem. Fallback embed se canvas falhar.
  */
+export async function buildWelcomePayload(member, config, inviteInfo = {}, { preview = false } = {}) {
+    const ctx = buildContext(member, inviteInfo, config);
+    const contentRaw =
+        config.message_content ||
+        (config.mention_user ? '{user}' : '');
+    const content = applyVars(contentRaw, ctx) || undefined;
+
+    const components = buildCtaComponents(config);
+    let files = [];
+    let embeds = [];
+
+    if (config.use_generated_card !== false) {
+        try {
+            const attachment = await buildWelcomeAttachment({
+                config,
+                displayName: member.displayName || member.user.username,
+                username: member.user.username,
+                avatarUrl: member.user.displayAvatarURL({ extension: 'png', size: 256 }),
+                memberCount: member.guild.memberCount,
+                serverName: member.guild.name
+            });
+            files = [attachment];
+            // Embed leve abaixo do cartão
+            const light = new EmbedBuilder()
+                .setColor(parseColor(config.color))
+                .setDescription(
+                    applyVars(
+                        config.description ||
+                            'É bom ter você aqui. Explore os canais e encontre seu espaço.',
+                        ctx
+                    ).slice(0, 1000)
+                );
+            if (preview) light.setFooter({ text: 'PREVIEW · Allied Welcomer 2.0' });
+            else if (config.footer_text) {
+                light.setFooter({ text: applyVars(config.footer_text, ctx).slice(0, 200) });
+            }
+            embeds = [light];
+        } catch (e) {
+            console.error('[AlliedWelcome] card render failed:', e.message);
+            embeds = [buildWelcomeEmbed(config, member, ctx, { preview })];
+        }
+    } else {
+        embeds = [buildWelcomeEmbed(config, member, ctx, { preview })];
+    }
+
+    return {
+        content: content || undefined,
+        embeds,
+        files,
+        components,
+        allowedMentions: config.mention_user
+            ? { users: [member.id] }
+            : { parse: [] }
+    };
+}
+
 export async function handleMemberJoin(member) {
     if (!member?.guild || member.user?.bot) return;
 
@@ -218,7 +266,7 @@ export async function handleMemberJoin(member) {
     };
 
     try {
-        const { resolved, joinRow } = await processMemberJoinInvite(member);
+        const { resolved } = await processMemberJoinInvite(member);
         inviteInfo = {
             inviter_id: resolved.inviter_id,
             invite_code: resolved.invite_code,
@@ -231,7 +279,6 @@ export async function handleMemberJoin(member) {
             const st = await getInviterStats(member.guild.id, resolved.inviter_id);
             inviteInfo.inviter_joins = st.joins;
         }
-        void joinRow;
     } catch (e) {
         console.error('[AlliedWelcome] invite pipeline:', e.message);
     }
@@ -239,25 +286,12 @@ export async function handleMemberJoin(member) {
     const config = await getWelcomeConfig(member.guild.id);
     if (!config.enabled) return;
 
-    const ctx = buildContext(member, inviteInfo);
-    const embed = buildWelcomeEmbed(config, member, ctx);
-    const components = buildButtons(config.buttons);
-
     if (config.channel_id) {
         try {
             const ch = await member.guild.channels.fetch(config.channel_id).catch(() => null);
             if (ch?.isTextBased()) {
-                const content = config.mention_user ? `${member}` : undefined;
-                await ch.send({
-                    content,
-                    embeds: [embed],
-                    components,
-                    allowedMentions: config.mention_user
-                        ? { users: [member.id] }
-                        : { parse: [] }
-                });
-            } else {
-                console.warn('[AlliedWelcome] canal inválido:', config.channel_id);
+                const payload = await buildWelcomePayload(member, config, inviteInfo);
+                await ch.send(payload);
             }
         } catch (e) {
             console.error('[AlliedWelcome] send public:', e.message);
@@ -266,17 +300,21 @@ export async function handleMemberJoin(member) {
 
     if (config.dm_enabled) {
         try {
-            const dmEmbed = buildDmEmbed(config, member, ctx);
-            const dmComponents = buildButtons(config.dm_buttons);
+            const ctx = buildContext(member, inviteInfo, config);
+            const dmEmbed = new EmbedBuilder()
+                .setColor(parseColor(config.dm_color || config.color))
+                .setTitle(applyVars(config.dm_title, ctx).slice(0, 256))
+                .setDescription(applyVars(config.dm_description, ctx).slice(0, 4096))
+                .setTimestamp();
+            if (config.dm_footer_text) {
+                dmEmbed.setFooter({ text: applyVars(config.dm_footer_text, ctx) });
+            }
             await member.send({
                 embeds: [dmEmbed],
-                components: dmComponents
+                components: buildButtons(config.dm_buttons)
             });
         } catch (e) {
-            // DM bloqueada — não é fatal
-            console.log(
-                `[AlliedWelcome] DM não entregue a ${member.id}: ${e.message}`
-            );
+            console.log(`[AlliedWelcome] DM não entregue a ${member.id}: ${e.message}`);
         }
     }
 }
@@ -284,35 +322,34 @@ export async function handleMemberJoin(member) {
 export async function sendWelcomePreview(interaction, target = 'channel') {
     const config = await getWelcomeConfig(interaction.guildId);
     const member = interaction.member;
-    const ctx = buildContext(member, {
+    const inviteInfo = {
         inviter_id: interaction.user.id,
         invite_code: 'preview',
         inviter_joins: 0,
         attribution: 'confirmed'
-    });
+    };
 
     if (target === 'dm') {
         try {
-            const dmEmbed = buildDmEmbed(config, member, ctx);
-            const dmComponents = buildButtons(config.dm_buttons);
-            await interaction.user.send({ embeds: [dmEmbed], components: dmComponents });
-            return { ok: true, msg: 'Prévia da DM enviada na sua mensagem privada.' };
+            const ctx = buildContext(member, inviteInfo, config);
+            const dmEmbed = new EmbedBuilder()
+                .setColor(parseColor(config.dm_color || config.color))
+                .setTitle(applyVars(config.dm_title, ctx).slice(0, 256))
+                .setDescription(applyVars(config.dm_description, ctx).slice(0, 4096));
+            await interaction.user.send({ embeds: [dmEmbed] });
+            return { ok: true, msg: 'Prévia da DM enviada.' };
         } catch (e) {
-            return {
-                ok: false,
-                msg: `Não foi possível enviar a DM: ${e.message}`
-            };
+            return { ok: false, msg: `DM falhou: ${e.message}` };
         }
     }
 
-    const embed = buildWelcomeEmbed(config, member, ctx, { preview: true });
-    const components = buildButtons(config.buttons);
+    const payload = await buildWelcomePayload(member, config, inviteInfo, {
+        preview: true
+    });
     return {
         ok: true,
         payload: {
-            content: config.mention_user ? `${member} *(preview)*` : undefined,
-            embeds: [embed],
-            components,
+            ...payload,
             ephemeral: true
         }
     };

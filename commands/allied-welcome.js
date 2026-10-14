@@ -2,7 +2,11 @@ import {
     SlashCommandBuilder,
     PermissionFlagsBits,
     ChannelType,
-    EmbedBuilder
+    EmbedBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    AttachmentBuilder
 } from 'discord.js';
 import {
     getWelcomeConfig,
@@ -11,15 +15,25 @@ import {
     WELCOME_DEFAULTS,
     CARMINE
 } from '../systems/alliedWelcomer.js';
+import { setWelcomeArt, clearWelcomeArt } from '../systems/alliedDb.js';
+import {
+    validateArtAttachment,
+    fetchArtBuffer,
+    VISUAL_MODELS,
+    buildWelcomeAttachment,
+    MAX_ART_BYTES
+} from '../systems/alliedWelcomeCard.js';
+
+function assertAdmin(interaction) {
+    return interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild);
+}
 
 export const alliedWelcomeCommand = new SlashCommandBuilder()
     .setName('allied-welcome')
-    .setDescription('Configura o sistema de boas-vindas Allied')
+    .setDescription('Allied Welcomer 2.0 — arte, cartão e configurações')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sc) =>
-        sc
-            .setName('status')
-            .setDescription('Mostra a configuração atual do Welcomer')
+        sc.setName('painel').setDescription('Resumo visual da configuração atual')
     )
     .addSubcommand((sc) =>
         sc
@@ -32,7 +46,7 @@ export const alliedWelcomeCommand = new SlashCommandBuilder()
     .addSubcommand((sc) =>
         sc
             .setName('canal')
-            .setDescription('Define o canal de boas-vindas')
+            .setDescription('Canal de boas-vindas')
             .addChannelOption((o) =>
                 o
                     .setName('canal')
@@ -43,105 +57,145 @@ export const alliedWelcomeCommand = new SlashCommandBuilder()
     )
     .addSubcommand((sc) =>
         sc
-            .setName('mensagem')
-            .setDescription('Define título e descrição do embed público')
-            .addStringOption((o) =>
-                o.setName('titulo').setDescription('Título').setRequired(false).setMaxLength(256)
+            .setName('arte')
+            .setDescription('Importa, troca ou remove a arte de fundo do cartão')
+            .addAttachmentOption((o) =>
+                o.setName('imagem').setDescription('PNG, JPEG ou WebP (máx. ~2.5 MB)')
             )
-            .addStringOption((o) =>
-                o
-                    .setName('descricao')
-                    .setDescription('Descrição (use {user}, {server}, {membercount}...)')
-                    .setRequired(false)
-                    .setMaxLength(2000)
+            .addBooleanOption((o) =>
+                o.setName('remover').setDescription('Remove a arte personalizada')
             )
-    )
-    .addSubcommand((sc) =>
-        sc
-            .setName('cor')
-            .setDescription('Cor hexadecimal do embed')
-            .addStringOption((o) =>
-                o.setName('hex').setDescription('Ex: #8B1A1A').setRequired(true)
+            .addBooleanOption((o) =>
+                o.setName('usar').setDescription('Ativa/desativa uso da arte salva')
             )
     )
     .addSubcommand((sc) =>
         sc
-            .setName('imagem')
-            .setDescription('Imagem principal ou thumbnail fixa')
+            .setName('modelo')
+            .setDescription('Modelo visual do cartão')
             .addStringOption((o) =>
                 o
-                    .setName('tipo')
-                    .setDescription('Qual imagem')
+                    .setName('estilo')
+                    .setDescription('Identidade do cartão')
                     .setRequired(true)
                     .addChoices(
-                        { name: 'Banner (image)', value: 'image' },
-                        { name: 'Thumbnail URL fixa', value: 'thumbnail' },
-                        { name: 'Thumbnail = avatar do membro', value: 'avatar' }
+                        { name: 'Cinematográfico', value: 'cinematic' },
+                        { name: 'Minimalista', value: 'minimal' },
+                        { name: 'Decorativo', value: 'decorative' }
                     )
-            )
-            .addStringOption((o) =>
-                o.setName('url').setDescription('URL https (omitir para limpar)').setRequired(false)
             )
     )
     .addSubcommand((sc) =>
         sc
-            .setName('dm')
-            .setDescription('Configura a mensagem privada de boas-vindas')
+            .setName('cartao')
+            .setDescription('Textos e elementos do cartão gerado')
+            .addStringOption((o) => o.setName('titulo').setDescription('Ex: Bem-vindo(a)'))
+            .addStringOption((o) => o.setName('subtitulo').setDescription('Linha secundária'))
+            .addStringOption((o) => o.setName('marca').setDescription('Texto da marca (ALLIED)'))
+            .addBooleanOption((o) => o.setName('avatar').setDescription('Mostrar avatar'))
+            .addBooleanOption((o) => o.setName('nome').setDescription('Mostrar nome'))
+            .addBooleanOption((o) => o.setName('marca_visivel').setDescription('Mostrar marca'))
+            .addBooleanOption((o) => o.setName('membros').setDescription('Mostrar contagem'))
+            .addIntegerOption((o) =>
+                o.setName('tamanho_avatar').setDescription('64–200').setMinValue(64).setMaxValue(200)
+            )
+            .addNumberOption((o) =>
+                o
+                    .setName('overlay')
+                    .setDescription('Escurecimento 0–0.85')
+                    .setMinValue(0)
+                    .setMaxValue(0.85)
+            )
+            .addStringOption((o) =>
+                o
+                    .setName('encaixe')
+                    .setDescription('Como a arte preenche o cartão')
+                    .addChoices(
+                        { name: 'Cobrir (cover)', value: 'cover' },
+                        { name: 'Conter (contain)', value: 'contain' }
+                    )
+            )
             .addBooleanOption((o) =>
-                o.setName('ligado').setDescription('Ativar DM').setRequired(true)
+                o.setName('gerar_imagem').setDescription('Usar cartão gerado (false = só embed)')
+            )
+    )
+    .addSubcommand((sc) =>
+        sc
+            .setName('mensagem')
+            .setDescription('Texto acima do cartão / embed')
+            .addStringOption((o) =>
+                o
+                    .setName('conteudo')
+                    .setDescription('Use {user} {server} {memberCount} {rulesChannel}…')
+                    .setMaxLength(500)
             )
             .addStringOption((o) =>
-                o.setName('titulo').setDescription('Título da DM').setRequired(false)
+                o.setName('descricao').setDescription('Texto do embed auxiliar').setMaxLength(1000)
             )
-            .addStringOption((o) =>
-                o.setName('descricao').setDescription('Texto da DM').setRequired(false).setMaxLength(2000)
+            .addStringOption((o) => o.setName('cor').setDescription('Hex #8B1A1A'))
+    )
+    .addSubcommand((sc) =>
+        sc
+            .setName('canais-cta')
+            .setDescription('Canais citados nas variáveis e dicas')
+            .addChannelOption((o) =>
+                o
+                    .setName('regras')
+                    .setDescription('{rulesChannel}')
+                    .addChannelTypes(ChannelType.GuildText)
+            )
+            .addChannelOption((o) =>
+                o
+                    .setName('apresentacao')
+                    .setDescription('{introductionsChannel}')
+                    .addChannelTypes(ChannelType.GuildText)
             )
     )
     .addSubcommand((sc) =>
         sc
             .setName('botoes')
-            .setDescription('Define até 3 botões de link no embed público (JSON)')
+            .setDescription('Botões de link (JSON)')
             .addStringOption((o) =>
                 o
                     .setName('json')
-                    .setDescription('Ex: [{"label":"Regras","url":"https://..."}]')
+                    .setDescription('[{"label":"Regras","url":"https://..."}]')
                     .setRequired(true)
             )
     )
     .addSubcommand((sc) =>
         sc
-            .setName('dm-botoes')
-            .setDescription('Botões de link da DM (JSON)')
-            .addStringOption((o) =>
-                o.setName('json').setDescription('Array JSON de {label,url}').setRequired(true)
+            .setName('dm')
+            .setDescription('Mensagem privada')
+            .addBooleanOption((o) =>
+                o.setName('ligado').setDescription('Ativar DM').setRequired(true)
             )
-    )
-    .addSubcommand((sc) =>
-        sc
-            .setName('opcoes')
-            .setDescription('Liga/desliga partes do embed')
-            .addBooleanOption((o) => o.setName('mencao').setDescription('Mencionar o membro'))
-            .addBooleanOption((o) => o.setName('conta').setDescription('Mostrar data da conta'))
-            .addBooleanOption((o) => o.setName('membros').setDescription('Mostrar contagem'))
-            .addBooleanOption((o) => o.setName('convite').setDescription('Mostrar dados do convite'))
-            .addBooleanOption((o) => o.setName('timestamp').setDescription('Mostrar horário'))
+            .addStringOption((o) => o.setName('titulo').setDescription('Título'))
+            .addStringOption((o) =>
+                o.setName('descricao').setDescription('Corpo').setMaxLength(2000)
+            )
     )
     .addSubcommand((sc) =>
         sc
             .setName('preview')
-            .setDescription('Prévia sem alterar estatísticas')
+            .setDescription('Gera cartão de teste (não altera stats)')
+            .addUserOption((o) =>
+                o.setName('membro').setDescription('Usar avatar/nome deste membro')
+            )
             .addStringOption((o) =>
                 o
                     .setName('alvo')
-                    .setDescription('Onde enviar')
+                    .setDescription('Onde mostrar')
                     .addChoices(
-                        { name: 'Aqui (efêmero)', value: 'channel' },
-                        { name: 'Minha DM', value: 'dm' }
+                        { name: 'Só para mim (efêmero)', value: 'ephemeral' },
+                        { name: 'Canal atual', value: 'channel' }
                     )
             )
     )
     .addSubcommand((sc) =>
-        sc.setName('reset').setDescription('Restaura textos padrão Allied (mantém canal)')
+        sc.setName('reset').setDescription('Restaura textos e modelo padrão (mantém canal e arte)')
+    )
+    .addSubcommand((sc) =>
+        sc.setName('status').setDescription('Status resumido')
     );
 
 function parseButtons(raw) {
@@ -153,28 +207,28 @@ function parseButtons(raw) {
             label: String(b.label || '').slice(0, 80),
             url: String(b.url || '')
         }))
-        .filter((b) => b.label && b.url.startsWith('http'));
+        .filter((b) => b.label && /^https?:\/\//i.test(b.url));
 }
 
 export async function executeAlliedWelcome(interaction) {
     if (!interaction.guildId) {
         return interaction.reply({ content: 'Só em servidores.', ephemeral: true });
     }
-
-    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+    if (!assertAdmin(interaction)) {
         return interaction.reply({
-            content: 'Você precisa da permissão **Gerenciar Servidor**.',
+            content: 'Você precisa de **Gerenciar Servidor**.',
             ephemeral: true
         });
     }
 
     const sub = interaction.options.getSubcommand();
 
-    if (sub === 'status') {
+    if (sub === 'status' || sub === 'painel') {
         const c = await getWelcomeConfig(interaction.guildId);
+        const model = VISUAL_MODELS[c.visual_model] || VISUAL_MODELS.cinematic;
         const embed = new EmbedBuilder()
             .setColor(CARMINE)
-            .setTitle('Allied Welcomer')
+            .setTitle('Allied Welcomer 2.0')
             .setDescription(c.enabled ? '🟢 **Ativo**' : '⚪ **Desativado**')
             .addFields(
                 {
@@ -183,17 +237,31 @@ export async function executeAlliedWelcome(interaction) {
                     inline: true
                 },
                 {
-                    name: 'DM',
-                    value: c.dm_enabled ? '🟢 ligada' : '⚪ desligada',
+                    name: 'Cartão gerado',
+                    value: c.use_generated_card !== false ? 'Sim' : 'Não (só embed)',
                     inline: true
                 },
-                { name: 'Título', value: c.title || '—', inline: false },
+                {
+                    name: 'Arte',
+                    value: c.has_art
+                        ? c.art_enabled
+                            ? 'Importada · em uso'
+                            : 'Importada · desligada'
+                        : 'Padrão (gradiente Allied)',
+                    inline: true
+                },
+                { name: 'Modelo', value: `**${model.label}**\n${model.description}`, inline: false },
+                {
+                    name: 'Mensagem',
+                    value: `\`${(c.message_content || '').slice(0, 120)}\``,
+                    inline: false
+                },
                 {
                     name: 'Variáveis',
-                    value: '`{user}` `{username}` `{server}` `{membercount}` `{createdat}` `{joinedat}` `{inviter}` `{invitecode}` `{invites}`'
+                    value: '`{user}` `{username}` `{server}` `{memberCount}` `{rulesChannel}` `{introductionsChannel}` `{inviter}` `{invitecode}`'
                 }
             )
-            .setFooter({ text: 'Allied · configuração por servidor' })
+            .setFooter({ text: 'Use /allied-welcome preview para ver o cartão' })
             .setTimestamp();
         return interaction.reply({ embeds: [embed], ephemeral: true });
     }
@@ -210,66 +278,159 @@ export async function executeAlliedWelcome(interaction) {
     if (sub === 'canal') {
         const ch = interaction.options.getChannel('canal', true);
         await updateWelcomeConfig(interaction.guildId, { channel_id: ch.id });
+        return interaction.reply({ content: `Canal: ${ch}`, ephemeral: true });
+    }
+
+    if (sub === 'arte') {
+        const remover = interaction.options.getBoolean('remover');
+        const usar = interaction.options.getBoolean('usar');
+        const img = interaction.options.getAttachment('imagem');
+
+        if (remover) {
+            await clearWelcomeArt(interaction.guildId);
+            return interaction.reply({
+                content: 'Arte personalizada removida. Voltando ao fundo padrão.',
+                ephemeral: true
+            });
+        }
+
+        if (usar != null && !img) {
+            await updateWelcomeConfig(interaction.guildId, { art_enabled: usar });
+            return interaction.reply({
+                content: usar ? 'Arte personalizada **ativada**.' : 'Arte personalizada **desativada** (fundo padrão).',
+                ephemeral: true
+            });
+        }
+
+        if (!img) {
+            return interaction.reply({
+                content: 'Envie `imagem` como anexo, ou use `remover:True` / `usar:True|False`.',
+                ephemeral: true
+            });
+        }
+
+        const check = validateArtAttachment(img);
+        if (!check.ok) {
+            return interaction.reply({ content: check.msg, ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        try {
+            const buf = await fetchArtBuffer(img);
+            await setWelcomeArt(interaction.guildId, buf, img.contentType || 'image/png');
+            // Prévia rápida
+            const config = await getWelcomeConfig(interaction.guildId);
+            const file = await buildWelcomeAttachment({
+                config,
+                displayName: interaction.member.displayName,
+                username: interaction.user.username,
+                avatarUrl: interaction.user.displayAvatarURL({ extension: 'png', size: 256 }),
+                memberCount: interaction.guild.memberCount,
+                serverName: interaction.guild.name
+            });
+            return interaction.editReply({
+                content: `Arte salva (**${(buf.length / 1024).toFixed(0)} KB**). Prévia com o modelo atual:`,
+                files: [file]
+            });
+        } catch (e) {
+            console.error('arte import:', e);
+            return interaction.editReply({
+                content: `Não foi possível processar a imagem: ${e.message}`
+            });
+        }
+    }
+
+    if (sub === 'modelo') {
+        const estilo = interaction.options.getString('estilo', true);
+        await updateWelcomeConfig(interaction.guildId, { visual_model: estilo });
+        const m = VISUAL_MODELS[estilo];
         return interaction.reply({
-            content: `Canal de boas-vindas: ${ch}`,
+            content: `Modelo: **${m.label}** — ${m.description}`,
             ephemeral: true
         });
     }
 
-    if (sub === 'mensagem') {
+    if (sub === 'cartao') {
         const patch = {};
         const titulo = interaction.options.getString('titulo');
-        const descricao = interaction.options.getString('descricao');
-        if (titulo != null) patch.title = titulo;
-        if (descricao != null) patch.description = descricao;
+        const subtitulo = interaction.options.getString('subtitulo');
+        const marca = interaction.options.getString('marca');
+        const avatar = interaction.options.getBoolean('avatar');
+        const nome = interaction.options.getBoolean('nome');
+        const marcaV = interaction.options.getBoolean('marca_visivel');
+        const membros = interaction.options.getBoolean('membros');
+        const tam = interaction.options.getInteger('tamanho_avatar');
+        const overlay = interaction.options.getNumber('overlay');
+        const encaixe = interaction.options.getString('encaixe');
+        const gerar = interaction.options.getBoolean('gerar_imagem');
+        if (titulo != null) patch.card_title = titulo;
+        if (subtitulo != null) patch.card_subtitle = subtitulo;
+        if (marca != null) patch.brand_text = marca;
+        if (avatar != null) patch.show_avatar = avatar;
+        if (nome != null) patch.show_name = nome;
+        if (marcaV != null) patch.show_brand = marcaV;
+        if (membros != null) patch.show_membercount = membros;
+        if (tam != null) patch.avatar_size = tam;
+        if (overlay != null) patch.overlay_opacity = overlay;
+        if (encaixe != null) patch.art_fit = encaixe;
+        if (gerar != null) patch.use_generated_card = gerar;
         if (!Object.keys(patch).length) {
             return interaction.reply({
-                content: 'Informe `titulo` e/ou `descricao`.',
+                content: 'Informe ao menos uma opção do cartão.',
                 ephemeral: true
             });
         }
         await updateWelcomeConfig(interaction.guildId, patch);
-        return interaction.reply({ content: 'Mensagem pública atualizada.', ephemeral: true });
+        return interaction.reply({ content: 'Cartão atualizado. Use `/allied-welcome preview`.', ephemeral: true });
     }
 
-    if (sub === 'cor') {
-        const hex = interaction.options.getString('hex', true).trim();
-        if (!/^#?[0-9a-fA-F]{6}$/.test(hex)) {
-            return interaction.reply({ content: 'Hex inválido. Ex: `#8B1A1A`', ephemeral: true });
+    if (sub === 'mensagem') {
+        const patch = {};
+        const conteudo = interaction.options.getString('conteudo');
+        const descricao = interaction.options.getString('descricao');
+        const cor = interaction.options.getString('cor');
+        if (conteudo != null) patch.message_content = conteudo;
+        if (descricao != null) patch.description = descricao;
+        if (cor != null) {
+            if (!/^#?[0-9a-fA-F]{6}$/.test(cor.trim())) {
+                return interaction.reply({ content: 'Cor hex inválida.', ephemeral: true });
+            }
+            patch.color = cor.startsWith('#') ? cor.toUpperCase() : `#${cor.toUpperCase()}`;
         }
-        const normalized = hex.startsWith('#') ? hex.toUpperCase() : `#${hex.toUpperCase()}`;
-        await updateWelcomeConfig(interaction.guildId, { color: normalized });
-        return interaction.reply({ content: `Cor: \`${normalized}\``, ephemeral: true });
+        if (!Object.keys(patch).length) {
+            return interaction.reply({ content: 'Nada para salvar.', ephemeral: true });
+        }
+        await updateWelcomeConfig(interaction.guildId, patch);
+        return interaction.reply({ content: 'Mensagem atualizada.', ephemeral: true });
     }
 
-    if (sub === 'imagem') {
-        const tipo = interaction.options.getString('tipo', true);
-        const url = interaction.options.getString('url');
-        if (tipo === 'avatar') {
+    if (sub === 'canais-cta') {
+        const patch = {};
+        const r = interaction.options.getChannel('regras');
+        const a = interaction.options.getChannel('apresentacao');
+        if (r) patch.rules_channel_id = r.id;
+        if (a) patch.intro_channel_id = a.id;
+        if (!Object.keys(patch).length) {
+            return interaction.reply({ content: 'Informe um canal.', ephemeral: true });
+        }
+        await updateWelcomeConfig(interaction.guildId, patch);
+        return interaction.reply({ content: 'Canais de CTA salvos.', ephemeral: true });
+    }
+
+    if (sub === 'botoes') {
+        try {
+            const buttons = parseButtons(interaction.options.getString('json', true));
             await updateWelcomeConfig(interaction.guildId, {
-                thumbnail_mode: 'avatar',
-                thumbnail_url: null
+                buttons,
+                cta_buttons: buttons
             });
             return interaction.reply({
-                content: 'Thumbnail = avatar do novo membro.',
+                content: `${buttons.length} botão(ões) de link salvos.`,
                 ephemeral: true
             });
+        } catch (e) {
+            return interaction.reply({ content: `JSON inválido: ${e.message}`, ephemeral: true });
         }
-        if (tipo === 'thumbnail') {
-            await updateWelcomeConfig(interaction.guildId, {
-                thumbnail_mode: 'url',
-                thumbnail_url: url || null
-            });
-            return interaction.reply({
-                content: url ? 'Thumbnail fixa definida.' : 'Thumbnail limpa.',
-                ephemeral: true
-            });
-        }
-        await updateWelcomeConfig(interaction.guildId, { image_url: url || null });
-        return interaction.reply({
-            content: url ? 'Banner definido.' : 'Banner removido.',
-            ephemeral: true
-        });
     }
 
     if (sub === 'dm') {
@@ -285,55 +446,41 @@ export async function executeAlliedWelcome(interaction) {
         });
     }
 
-    if (sub === 'botoes' || sub === 'dm-botoes') {
+    if (sub === 'preview') {
+        await interaction.deferReply({
+            ephemeral: (interaction.options.getString('alvo') || 'ephemeral') === 'ephemeral'
+        });
+        const targetUser = interaction.options.getUser('membro') || interaction.user;
+        let member = interaction.member;
+        if (targetUser.id !== interaction.user.id) {
+            member =
+                (await interaction.guild.members.fetch(targetUser.id).catch(() => null)) ||
+                interaction.member;
+        }
+        const config = await getWelcomeConfig(interaction.guildId);
         try {
-            const buttons = parseButtons(interaction.options.getString('json', true));
-            if (sub === 'botoes') {
-                await updateWelcomeConfig(interaction.guildId, { buttons });
-            } else {
-                await updateWelcomeConfig(interaction.guildId, { dm_buttons: buttons });
-            }
-            return interaction.reply({
-                content: `${buttons.length} botão(ões) salvos.`,
-                ephemeral: true
+            const { buildWelcomePayload } = await import('../systems/alliedWelcomer.js');
+            const payload = await buildWelcomePayload(
+                member,
+                config,
+                {
+                    inviter_id: interaction.user.id,
+                    invite_code: 'preview',
+                    inviter_joins: 0,
+                    attribution: 'confirmed'
+                },
+                { preview: true }
+            );
+            return interaction.editReply({
+                content: payload.content,
+                embeds: payload.embeds,
+                files: payload.files,
+                components: payload.components
             });
         } catch (e) {
-            return interaction.reply({
-                content: `JSON inválido: ${e.message}`,
-                ephemeral: true
-            });
+            console.error('preview:', e);
+            return interaction.editReply({ content: `Falha na prévia: ${e.message}` });
         }
-    }
-
-    if (sub === 'opcoes') {
-        const patch = {};
-        const mencao = interaction.options.getBoolean('mencao');
-        const conta = interaction.options.getBoolean('conta');
-        const membros = interaction.options.getBoolean('membros');
-        const convite = interaction.options.getBoolean('convite');
-        const timestamp = interaction.options.getBoolean('timestamp');
-        if (mencao != null) patch.mention_user = mencao;
-        if (conta != null) patch.show_createdat = conta;
-        if (membros != null) patch.show_membercount = membros;
-        if (convite != null) patch.show_invite = convite;
-        if (timestamp != null) patch.show_timestamp = timestamp;
-        if (!Object.keys(patch).length) {
-            return interaction.reply({ content: 'Nenhuma opção enviada.', ephemeral: true });
-        }
-        await updateWelcomeConfig(interaction.guildId, patch);
-        return interaction.reply({ content: 'Opções atualizadas.', ephemeral: true });
-    }
-
-    if (sub === 'preview') {
-        const alvo = interaction.options.getString('alvo') || 'channel';
-        const result = await sendWelcomePreview(interaction, alvo);
-        if (alvo === 'dm') {
-            return interaction.reply({ content: result.msg, ephemeral: true });
-        }
-        if (!result.ok) {
-            return interaction.reply({ content: result.msg, ephemeral: true });
-        }
-        return interaction.reply(result.payload);
     }
 
     if (sub === 'reset') {
@@ -341,10 +488,14 @@ export async function executeAlliedWelcome(interaction) {
         await updateWelcomeConfig(interaction.guildId, {
             ...WELCOME_DEFAULTS,
             channel_id: cur.channel_id,
-            enabled: cur.enabled
+            enabled: cur.enabled,
+            // não limpa arte automaticamente
+            art_enabled: cur.art_enabled,
+            rules_channel_id: cur.rules_channel_id,
+            intro_channel_id: cur.intro_channel_id
         });
         return interaction.reply({
-            content: 'Textos restaurados ao padrão Allied (canal preservado).',
+            content: 'Textos e modelo restaurados (canal e arte preservados).',
             ephemeral: true
         });
     }
