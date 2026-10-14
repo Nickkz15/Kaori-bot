@@ -63,12 +63,23 @@ import { configCommand, executeConfig } from './commands/config.js';
 import { ensureConfessSchema } from './systems/confessDb.js';
 import { handlePollVote, handlePollModal, buildPollModal } from './systems/confessPoll.js';
 
+import { alliedWelcomeCommand, executeAlliedWelcome } from './commands/allied-welcome.js';
+import { alliedInvitesCommand, executeAlliedInvites } from './commands/allied-invites.js';
+import { initAlliedWelcomer, handleMemberJoin as alliedHandleMemberJoin } from './systems/alliedWelcomer.js';
+import {
+    initAlliedInviteLogger,
+    handleInviteCreate,
+    handleInviteDelete,
+    processMemberLeaveInvite
+} from './systems/alliedInviteLogger.js';
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildInvites
     ]
 });
 
@@ -173,7 +184,9 @@ const COMMAND_HANDLERS = {
     confessbanlist: executeConfessbanlist,
     logschannel: executeLogschannel,
     pool: executePool,
-    config: executeConfig
+    config: executeConfig,
+    'allied-welcome': executeAlliedWelcome,
+    'allied-invites': executeAlliedInvites
 };
 
 client.once(Events.ClientReady, async (bot) => {
@@ -185,6 +198,9 @@ client.once(Events.ClientReady, async (bot) => {
         await initDatabase();
         await ensureConfessSchema();
         console.log('✅ Sistema Confess (PostgreSQL) pronto.');
+        await initAlliedWelcomer();
+        await initAlliedInviteLogger(bot);
+        console.log('🏯 Allied Welcomer + InviteLogger prontos.');
     } catch (err) {
         console.error('❌ Falha ao inicializar PostgreSQL:', err.message);
         process.exit(1);
@@ -230,7 +246,9 @@ client.once(Events.ClientReady, async (bot) => {
                     confessbanlistCommand.toJSON(),
                     logschannelCommand.toJSON(),
                     poolCommand.toJSON(),
-                    configCommand.toJSON()
+                    configCommand.toJSON(),
+                    alliedWelcomeCommand.toJSON(),
+                    alliedInvitesCommand.toJSON()
                 ]
             }
         );
@@ -250,7 +268,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.guildId && interaction.guildId !== GUILD_ID) return;
 
     try {
-        // ---------- Modal Confess / Poll ----------
         if (interaction.isModalSubmit()) {
             if (interaction.customId === 'confess_modal') {
                 await handleConfessModal(interaction);
@@ -262,9 +279,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
         }
 
-        // ---------- Buttons ----------
         if (interaction.isButton()) {
-            // Botão legado do /config botao + botão da última confissão
             if (
                 interaction.customId === 'confess_open_modal' ||
                 interaction.customId === 'confess_make_confession'
@@ -401,7 +416,44 @@ client.on(Events.GuildMemberAdd, async (member) => {
     if (member.user.bot) return;
 
     console.log(`👤 Novo membro: ${member.user.username}`);
-    await verificarMembro(member);
+    try {
+        await verificarMembro(member);
+    } catch (e) {
+        console.error('verificarMembro:', e.message);
+    }
+    try {
+        await alliedHandleMemberJoin(member);
+    } catch (e) {
+        console.error('Allied welcome/join:', e.message);
+    }
+});
+
+client.on(Events.GuildMemberRemove, async (member) => {
+    if (member.guild?.id !== GUILD_ID) return;
+    if (member.user?.bot) return;
+    try {
+        await processMemberLeaveInvite(member);
+    } catch (e) {
+        console.error('Allied leave:', e.message);
+    }
+});
+
+client.on(Events.InviteCreate, async (invite) => {
+    if (invite.guild?.id !== GUILD_ID) return;
+    try {
+        await handleInviteCreate(invite);
+    } catch (e) {
+        console.error('Allied invite create:', e.message);
+    }
+});
+
+client.on(Events.InviteDelete, async (invite) => {
+    if (invite.guild?.id !== GUILD_ID) return;
+    try {
+        await handleInviteDelete(invite);
+    } catch (e) {
+        console.error('Allied invite delete:', e.message);
+    }
 });
 
 client.on(Events.UserUpdate, async (oldUser, newUser) => {
