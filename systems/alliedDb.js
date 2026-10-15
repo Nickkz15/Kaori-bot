@@ -190,6 +190,24 @@ function mapJson(row, key, fallback) {
     return row[key];
 }
 
+export function normalizeButtons(list) {
+    if (!Array.isArray(list)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const b of list) {
+        if (!b || typeof b !== 'object') continue;
+        const label = String(b.label || '').trim().slice(0, 80);
+        const url = String(b.url || '').trim();
+        if (!label || !/^https?:\/\//i.test(url)) continue;
+        const key = label + '|' + url;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ label, url });
+        if (out.length >= 5) break;
+    }
+    return out;
+}
+
 export async function getWelcomeConfig(guildId) {
     const res = await pool.query('SELECT * FROM allied_welcome_config WHERE guild_id = $1', [guildId]);
     if (!res.rows[0]) {
@@ -205,9 +223,9 @@ export async function getWelcomeConfig(guildId) {
         ...WELCOME_DEFAULTS,
         ...r,
         fields: mapJson(r, 'fields', []),
-        buttons: mapJson(r, 'buttons', []),
-        dm_buttons: mapJson(r, 'dm_buttons', []),
-        cta_buttons: mapJson(r, 'cta_buttons', []),
+        buttons: normalizeButtons(mapJson(r, 'buttons', [])),
+        dm_buttons: normalizeButtons(mapJson(r, 'dm_buttons', [])),
+        cta_buttons: normalizeButtons(mapJson(r, 'cta_buttons', [])),
         art_buffer,
         has_art: Boolean(art_buffer || r.art_url)
     };
@@ -239,7 +257,11 @@ export async function updateWelcomeConfig(guildId, patch) {
         sets.push(`${key} = $${i}`);
         const v = patch[key];
         if (key === 'fields' || key === 'buttons' || key === 'dm_buttons' || key === 'cta_buttons') {
-            values.push(JSON.stringify(v ?? []));
+            values.push(
+                JSON.stringify(
+                    key === 'fields' ? (v ?? []) : normalizeButtons(v)
+                )
+            );
         } else if (key === 'art_data') {
             values.push(v);
         } else {

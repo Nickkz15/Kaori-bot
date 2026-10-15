@@ -83,19 +83,46 @@ function buildContext(member, inviteInfo = {}, config = {}) {
     };
 }
 
+/**
+ * Monta ActionRows de botões de link.
+ * Remove duplicatas por URL e por label|url antes de enviar ao Discord.
+ */
 function buildButtons(buttons) {
     if (!Array.isArray(buttons) || !buttons.length) return [];
-    const rows = [];
-    let row = new ActionRowBuilder();
-    let count = 0;
-    for (const b of buttons.slice(0, 25)) {
+
+    const seenUrl = new Set();
+    const seenPair = new Set();
+    const cleaned = [];
+
+    for (const b of buttons) {
         if (!b?.label || !b?.url) continue;
+        const label = String(b.label).trim().slice(0, 80);
+        const urlRaw = String(b.url).trim();
+        if (!label || !urlRaw) continue;
+
+        let url;
         try {
-            const url = new URL(b.url);
+            url = new URL(urlRaw);
             if (!['http:', 'https:'].includes(url.protocol)) continue;
         } catch {
             continue;
         }
+
+        const href = url.href;
+        const pair = `${label}|${href}`;
+        if (seenUrl.has(href) || seenPair.has(pair)) continue;
+        seenUrl.add(href);
+        seenPair.add(pair);
+        cleaned.push({ label, url: href });
+        if (cleaned.length >= 5) break;
+    }
+
+    if (!cleaned.length) return [];
+
+    const rows = [];
+    let row = new ActionRowBuilder();
+    let count = 0;
+    for (const b of cleaned) {
         if (count > 0 && count % 5 === 0) {
             rows.push(row);
             row = new ActionRowBuilder();
@@ -103,7 +130,7 @@ function buildButtons(buttons) {
         row.addComponents(
             new ButtonBuilder()
                 .setStyle(ButtonStyle.Link)
-                .setLabel(String(b.label).slice(0, 80))
+                .setLabel(b.label)
                 .setURL(b.url)
         );
         count++;
@@ -112,16 +139,10 @@ function buildButtons(buttons) {
     return rows;
 }
 
-/** CTAs a partir de canais configurados + cta_buttons */
+/** Apenas config.buttons — nunca mescla cta_buttons. */
 function buildCtaComponents(config) {
-    const buttons = [];
-    if (config.rules_channel_id) {
-        // Link buttons need full URL — use discord channel link if we have guild id in runtime
-    }
-    const custom = Array.isArray(config.cta_buttons) ? config.cta_buttons : [];
-    const merged = [...custom];
-    // Prefer explicit link buttons from config.buttons (legacy) + cta
-    return buildButtons([...(config.buttons || []), ...merged]);
+    const list = Array.isArray(config?.buttons) ? config.buttons : [];
+    return buildButtons(list);
 }
 
 export function buildWelcomeEmbed(config, member, ctx, { preview = false } = {}) {
@@ -219,8 +240,9 @@ export async function buildWelcomePayload(member, config, inviteInfo = {}, { pre
                 memberCount: member.guild.memberCount,
                 serverName: member.guild.name
             });
+            const fileName = 'allied-welcome.png';
             files = [attachment];
-            // Embed leve abaixo do cartão
+
             const light = new EmbedBuilder()
                 .setColor(parseColor(config.color))
                 .setDescription(
@@ -229,10 +251,15 @@ export async function buildWelcomePayload(member, config, inviteInfo = {}, { pre
                             'É bom ter você aqui. Explore os canais e encontre seu espaço.',
                         ctx
                     ).slice(0, 1000)
-                );
-            if (preview) light.setFooter({ text: 'PREVIEW · Allied Welcomer 2.0' });
-            else if (config.footer_text) {
-                light.setFooter({ text: applyVars(config.footer_text, ctx).slice(0, 200) });
+                )
+                .setImage(`attachment://${fileName}`);
+
+            if (preview) {
+                light.setFooter({ text: 'PREVIEW · Allied Welcomer 2.0' });
+            } else if (config.footer_text) {
+                light.setFooter({
+                    text: applyVars(config.footer_text, ctx).slice(0, 200)
+                });
             }
             embeds = [light];
         } catch (e) {
