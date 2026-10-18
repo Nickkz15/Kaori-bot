@@ -22,7 +22,8 @@ export const MAX_MESSAGE_LENGTH = 500;
 export const MAX_CONCURRENT_REQUESTS = 1;
 export const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS) || 100;
 export const MAX_AI_RETRIES = Number(process.env.MAX_AI_RETRIES) || 1;
-export const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS) || 25000;
+/** Default 45s — Gemini sometimes exceeds 25s under load or with long system prompts. */
+export const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS) || 45000;
 export const FORBIDDEN_RESPONSES = [];
 
 export const SPECIAL_USERS = {
