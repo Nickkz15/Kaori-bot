@@ -11,9 +11,11 @@ export const XAI_MODEL = process.env.XAI_MODEL || 'grok-3-mini';
 
 /**
  * Primary Gemini model. Override via GEMINI_MODEL if needed.
- * Keep in sync with models available to your API key.
+ * gemini-2.0-flash was shut down (2026-06-01) and returns HTTP 404.
+ * Prefer a current Flash-Lite / Flash id available to your API key.
+ * Docs: https://ai.google.dev/gemini-api/docs/models
  */
-export const AI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+export const AI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 
 export const AI_COOLDOWN = 10 * 1000;
 export const MAX_MESSAGE_LENGTH = 500;
