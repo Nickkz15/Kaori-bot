@@ -20,10 +20,13 @@ export const AI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 export const AI_COOLDOWN = 10 * 1000;
 export const MAX_MESSAGE_LENGTH = 500;
 export const MAX_CONCURRENT_REQUESTS = 1;
-export const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS) || 100;
+/** Keep casual replies short (~1 phrase). Override with MAX_OUTPUT_TOKENS. */
+export const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS) || 60;
 export const MAX_AI_RETRIES = Number(process.env.MAX_AI_RETRIES) || 1;
 /** Default 45s — Gemini sometimes exceeds 25s under load or with long system prompts. */
 export const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS) || 45000;
+/** Soft max characters for a single casual reply (sentence-aware trim). */
+export const MAX_REPLY_CHARS = Number(process.env.MAX_REPLY_CHARS) || 280;
 export const FORBIDDEN_RESPONSES = [];
 
 export const SPECIAL_USERS = {
@@ -129,6 +132,7 @@ export default {
     MAX_OUTPUT_TOKENS,
     MAX_AI_RETRIES,
     AI_REQUEST_TIMEOUT_MS,
+    MAX_REPLY_CHARS,
     FORBIDDEN_RESPONSES,
     SPECIAL_USERS,
     AI_ALLOWED_CHANNELS,
