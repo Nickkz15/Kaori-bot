@@ -31,32 +31,38 @@ const SAFETY_REPLIES = [
 
 const BREVITY_NUDGE_SHORT =
     'INSTRUÇÃO DE RESPOSTA: responda em UMA frase curta (cerca de 5 a 20 palavras). ' +
-    'Sem parágrafo, sem introdução, sem explicação extra. Vá direto ao ponto.';
+    'Sem parágrafo, sem introdução, sem explicação extra. Vá direto ao ponto. Sempre termine a frase.';
 
 const BREVITY_NUDGE_EXTENDED =
     'INSTRUÇÃO DE RESPOSTA: esta pergunta pede um pouco mais de conteúdo. ' +
-    'Use 2 a 5 frases curtas no máximo — o suficiente para responder completo, sem parágrafo longo, ' +
-    'sem enrolação e sem cortar no meio. Termine a última frase normalmente.';
+    'Use 2 a 6 frases curtas — o suficiente para responder completo. ' +
+    'Termine a última frase com ponto. Nunca pare no meio de uma frase ou lista.';
 
-/** Extended mode token/char caps (still bounded; not essays). */
-const EXTENDED_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS_EXTENDED) || 180;
-const EXTENDED_REPLY_CHARS = Number(process.env.MAX_REPLY_CHARS_EXTENDED) || 700;
+/** Extended mode: enough room for a short list without mid-cut. */
+const EXTENDED_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS_EXTENDED) || 280;
+/** Discord hard cap; we never soft-cut mid-sentence below this for extended. */
+const DISCORD_SAFE_CHARS = 1900;
+
+const DANGLING_TAIL =
+    /\s+(mas|por[eé]m|contudo|entretanto|e|ou|porque|pra|para|com|de|da|do|das|dos|que|se|quando|como|em|na|no|nas|nos|um|uma|uns|umas|ao|à|às|aos|,|;|:|…)\s*$/i;
 
 /**
- * Detect if the user message likely needs a longer-than-casual answer
- * (lists, explanations, "who do you know", how-to, etc.).
+ * Detect if the user message likely needs a longer-than-casual answer.
  */
 export function detectReplyBudget(userMessage) {
-    const text = String(userMessage || '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+    const text = String(userMessage || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '');
     const shortTokens = MAX_OUTPUT_TOKENS || 60;
     const shortChars = MAX_REPLY_CHARS || 280;
 
     const extendedPatterns = [
         /\bquem (sao|são|e|é)\b/,
         /\bquais (sao|são|as|os)\b/,
-        /\bquem voce conhece\b/,
-        /\bquem vc conhece\b/,
+        /\bquem (voce|vc) conhece\b/,
         /\bpessoas que (voce|vc) (conhece|sabe)\b/,
+        /\bconhece\b/,
         /\blista(r)?\b/,
         /\bnome(s)? (das|dos|de)\b/,
         /\bmembros\b/,
@@ -64,7 +70,7 @@ export function detectReplyBudget(userMessage) {
         /\bdivisões\b/,
         /\bo que e (a |o )?allied\b/,
         /\bo que é (a |o )?allied\b/,
-        /\bexplica(r|\b)/,
+        /\bexplica/,
         /\bme explica\b/,
         /\bcomo funciona\b/,
         /\bcomo (e|é) que\b/,
@@ -91,7 +97,8 @@ export function detectReplyBudget(userMessage) {
         return {
             mode: 'extended',
             maxTokens: Math.max(shortTokens, EXTENDED_OUTPUT_TOKENS),
-            maxChars: Math.max(shortChars, EXTENDED_REPLY_CHARS),
+            // Prefer complete sentences over hard char cuts
+            maxChars: DISCORD_SAFE_CHARS,
             nudge: BREVITY_NUDGE_EXTENDED
         };
     }
@@ -135,36 +142,81 @@ function pickLocal(list) {
     return list[Math.floor(Math.random() * list.length)];
 }
 
+function endsComplete(text) {
+    return /[.!?…)]$/.test(String(text || '').trim());
+}
+
 /**
- * Soft length limit: prefer cutting at sentence end, keep Discord mentions intact.
- * Never leaves a dangling connector like "mas", "e", "ou" when possible.
+ * Last index of a complete sentence boundary (. ! ? …) not inside <@...> mention.
  */
-export function softTrimReply(text, maxChars = MAX_REPLY_CHARS || 280) {
-    if (!isNonEmptyText(text)) return text;
-    const t = text.trim();
-    if (!maxChars || t.length <= maxChars) return t;
-
-    const slice = t.slice(0, maxChars);
-    const ends = ['. ', '! ', '? ', '\n', '.\n', '!\n', '?\n'];
+function lastSentenceEnd(text) {
+    const s = String(text || '');
     let best = -1;
-    for (const e of ends) {
-        const i = slice.lastIndexOf(e);
-        if (i > maxChars * 0.35 && i > best) best = i + e.trimEnd().length;
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (ch === '.' || ch === '!' || ch === '?' || ch === '…') {
+            // skip if looks like part of a number 3.14 — still ok for chat
+            best = i;
+        }
     }
-    // Also accept terminal punctuation at end of slice
-    if (best < 0 && /[.!?]$/.test(slice.trim())) {
-        return slice.trim();
-    }
-    if (best > 0) return slice.slice(0, best).trim();
+    return best;
+}
 
-    const sp = slice.lastIndexOf(' ');
-    if (sp > maxChars * 0.5) {
-        let cut = slice.slice(0, sp).trim();
-        // Drop trailing dangling conjunctions
-        cut = cut.replace(/\s+(mas|e|ou|porque|pra|para|com|de|da|do|que|,)\s*$/i, '').trim();
-        return cut || slice.trim();
+/**
+ * HARD RULE: never return text that ends mid-sentence or on a dangling conjunction.
+ * - Prefer cutting only at . ! ?
+ * - If no boundary exists and text is incomplete, strip dangling tail; if still bad, keep as-is only if complete
+ * - maxChars is a soft preference for short mode; completeness always wins over length
+ */
+export function finalizeReply(text, { maxChars = null, partial = false } = {}) {
+    if (!isNonEmptyText(text)) return text;
+    let t = text.trim();
+
+    // Prefer complete sentences within maxChars when provided
+    if (maxChars && t.length > maxChars) {
+        const window = t.slice(0, maxChars);
+        const end = lastSentenceEnd(window);
+        if (end >= Math.floor(maxChars * 0.25)) {
+            t = window.slice(0, end + 1).trim();
+        }
+        // else: DO NOT hard-cut mid-sentence — keep full text up to Discord safe limit
+        else if (t.length > DISCORD_SAFE_CHARS) {
+            const end2 = lastSentenceEnd(t.slice(0, DISCORD_SAFE_CHARS));
+            if (end2 >= 0) t = t.slice(0, end2 + 1).trim();
+            else t = t.slice(0, DISCORD_SAFE_CHARS).trim();
+        }
     }
-    return slice.trim();
+
+    // If model stopped mid-way (partial or no terminal punct), keep only complete sentences
+    if (partial || !endsComplete(t)) {
+        const end = lastSentenceEnd(t);
+        if (end >= 0) {
+            t = t.slice(0, end + 1).trim();
+        } else {
+            // No full sentence at all — strip dangling words so we don't end on "mas"
+            t = t.replace(DANGLING_TAIL, '').trim();
+            // Still incomplete and short fragment: better a clean short line than "mas"
+            if (!endsComplete(t) && t.length > 0) {
+                t = t.replace(/[,:;\-–—]+$/u, '').trim();
+            }
+        }
+    }
+
+    // Final pass: never leave dangling conjunctions
+    t = t.replace(DANGLING_TAIL, '').trim();
+
+    // Absolute Discord safety
+    if (t.length > 2000) {
+        const end = lastSentenceEnd(t.slice(0, 1900));
+        t = end >= 0 ? t.slice(0, end + 1).trim() : t.slice(0, 1900).trim();
+    }
+
+    return t;
+}
+
+/** @deprecated use finalizeReply — kept for tests/compat */
+export function softTrimReply(text, maxChars = MAX_REPLY_CHARS || 280) {
+    return finalizeReply(text, { maxChars, partial: false });
 }
 
 export function extractGeminiText(response) {
@@ -338,7 +390,33 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, maxCha
             }
 
             if (isNonEmptyText(extracted.text)) {
-                const trimmed = softTrimReply(extracted.text.trim(), maxChars);
+                const trimmed = finalizeReply(extracted.text.trim(), {
+                    maxChars,
+                    partial: extracted.partial
+                });
+                if (!isNonEmptyText(trimmed)) {
+                    logAI('warn', 'gemini_empty_after_finalize', {
+                        provider: 'gemini',
+                        category: 'empty',
+                        finishReason: extracted.finishReason,
+                        attempt,
+                        durationMs,
+                        messageId,
+                        replyMode
+                    });
+                    lastError = { category: 'empty', retryable: attempt + 1 < maxAttempts };
+                    if (attempt + 1 < maxAttempts) {
+                        await sleep(200);
+                        continue;
+                    }
+                    return {
+                        ok: false,
+                        category: 'empty',
+                        text: null,
+                        finishReason: extracted.finishReason,
+                        provider: 'gemini'
+                    };
+                }
                 logAI('info', 'gemini_ok', {
                     provider: 'gemini',
                     category: extracted.partial ? 'partial' : 'ok',
@@ -505,7 +583,7 @@ async function callGrok({ systemInstruction, history, userMessage, maxTokens, ma
             return { ok: false, category: 'empty', text: null, provider: 'xai' };
         }
 
-        const trimmed = softTrimReply(text.trim(), maxChars);
+        const trimmed = finalizeReply(text.trim(), { maxChars, partial: false });
         logAI('info', 'xai_ok', {
             provider: 'xai',
             category: 'ok',
@@ -579,7 +657,10 @@ export async function generateKaoriReply({
 
     if (geminiResult.ok && isNonEmptyText(geminiResult.text)) {
         return {
-            text: geminiResult.text.trim(),
+            text: finalizeReply(geminiResult.text.trim(), {
+                maxChars: budget.maxChars,
+                partial: geminiResult.category === 'partial'
+            }),
             provider: 'gemini',
             category: geminiResult.category,
             fromContingency: false,
@@ -633,7 +714,7 @@ export async function generateKaoriReply({
 
             if (grokResult.ok && isNonEmptyText(grokResult.text)) {
                 return {
-                    text: grokResult.text.trim(),
+                    text: finalizeReply(grokResult.text.trim(), { maxChars: budget.maxChars }),
                     provider: 'xai',
                     category: grokResult.category,
                     fromContingency: false,
@@ -665,7 +746,9 @@ export async function generateKaoriReply({
 }
 
 export function ensureSendableText(text, fallback = null) {
-    // Do not re-trim with short default — generateKaoriReply already applied the right budget.
-    if (isNonEmptyText(text)) return text.trim();
+    if (isNonEmptyText(text)) {
+        // Final gate: never send mid-sentence tail
+        return finalizeReply(text.trim(), { maxChars: null, partial: !endsComplete(text) });
+    }
     return isNonEmptyText(fallback) ? fallback.trim() : pickLocal(CONTINGENCY_REPLIES);
 }
