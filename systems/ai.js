@@ -7,7 +7,8 @@ import {
     PERSONALITY,
     XAI_API_KEY,
     XAI_MODEL,
-    AI_REQUEST_TIMEOUT_MS
+    AI_REQUEST_TIMEOUT_MS,
+    MAX_REPLY_CHARS
 } from '../config/kaori.js';
 
 export const ai = GEMINI_API_KEY
@@ -28,9 +29,10 @@ const SAFETY_REPLIES = [
     'Prefiro não seguir por esse caminho. Outra pergunta?'
 ];
 
-/**
- * Safe structured log — never dumps secrets, prompts or full history.
- */
+const BREVITY_NUDGE =
+    'INSTRUÇÃO DE RESPOSTA: responda em UMA frase curta (cerca de 5 a 20 palavras). ' +
+    'Sem parágrafo, sem introdução, sem explicação extra. Vá direto ao ponto.';
+
 export function logAI(level, event, meta = {}) {
     const safe = {
         ts: new Date().toISOString(),
@@ -62,9 +64,27 @@ function pickLocal(list) {
 }
 
 /**
- * Extract usable text + metadata from @google/genai GenerateContentResponse.
- * Never throws on missing nested fields.
+ * Soft length limit: prefer cutting at sentence end, keep Discord mentions intact.
  */
+export function softTrimReply(text, maxChars = MAX_REPLY_CHARS || 280) {
+    if (!isNonEmptyText(text)) return text;
+    const t = text.trim();
+    if (!maxChars || t.length <= maxChars) return t;
+
+    const slice = t.slice(0, maxChars);
+    const ends = ['. ', '! ', '? ', '\n'];
+    let best = -1;
+    for (const e of ends) {
+        const i = slice.lastIndexOf(e);
+        if (i > maxChars * 0.4 && i > best) best = i + e.trim().length;
+    }
+    if (best > 0) return slice.slice(0, best).trim();
+
+    const sp = slice.lastIndexOf(' ');
+    if (sp > maxChars * 0.5) return slice.slice(0, sp).trim();
+    return slice.trim();
+}
+
 export function extractGeminiText(response) {
     const result = {
         text: null,
@@ -90,7 +110,6 @@ export function extractGeminiText(response) {
     result.rawCandidates = candidates.length;
 
     if (candidates.length === 0) {
-        // Some SDK versions expose .text even without candidates array mirrored
         if (isNonEmptyText(response.text)) {
             result.text = response.text.trim();
             result.finishReason = 'STOP';
@@ -109,7 +128,6 @@ export function extractGeminiText(response) {
         return result;
     }
 
-    // Prefer SDK helper when present and non-empty
     if (isNonEmptyText(response.text)) {
         result.text = response.text.trim();
     } else {
@@ -131,9 +149,6 @@ export function extractGeminiText(response) {
     return result;
 }
 
-/**
- * Classify API / network errors for retry vs permanent handling.
- */
 export function classifyError(error) {
     const status =
         error?.status ??
@@ -190,9 +205,6 @@ function withTimeout(promise, ms, label = 'request') {
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/**
- * Call Gemini with limited retries for transient failures.
- */
 async function callGemini({ contents, systemInstruction, maxOutputTokens, messageId }) {
     if (!ai) {
         const err = new Error('gemini_not_configured');
@@ -212,7 +224,8 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
                     contents,
                     config: {
                         systemInstruction,
-                        maxOutputTokens: maxOutputTokens ?? MAX_OUTPUT_TOKENS
+                        maxOutputTokens: maxOutputTokens ?? MAX_OUTPUT_TOKENS,
+                        temperature: 0.9
                     }
                 }),
                 AI_REQUEST_TIMEOUT_MS,
@@ -242,6 +255,7 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
             }
 
             if (isNonEmptyText(extracted.text)) {
+                const trimmed = softTrimReply(extracted.text.trim());
                 logAI('info', 'gemini_ok', {
                     provider: 'gemini',
                     category: extracted.partial ? 'partial' : 'ok',
@@ -250,18 +264,17 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
                     durationMs,
                     messageId,
                     hasText: true,
-                    textLen: extracted.text.length
+                    textLen: trimmed.length
                 });
                 return {
                     ok: true,
                     category: extracted.partial ? 'partial' : 'ok',
-                    text: extracted.text.trim(),
+                    text: trimmed,
                     finishReason: extracted.finishReason,
                     provider: 'gemini'
                 };
             }
 
-            // Empty / no candidates — retry once if attempts remain
             logAI('warn', 'gemini_empty', {
                 provider: 'gemini',
                 category: 'empty',
@@ -273,7 +286,7 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
             });
             lastError = { category: 'empty', retryable: attempt + 1 < maxAttempts };
             if (attempt + 1 < maxAttempts) {
-                await sleep(400 * Math.pow(2, attempt) + Math.floor(Math.random() * 200));
+                await sleep(250 + Math.floor(Math.random() * 150));
                 continue;
             }
             return {
@@ -306,13 +319,18 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
                 };
             }
 
-            let wait = 500 * Math.pow(2, attempt);
-            const retryAfter = error?.headers?.get?.('retry-after') || error?.response?.headers?.['retry-after'];
+            // Fast retry on 5xx/network so the user is not stuck ~40s
+            let wait = classified.category === 'server' || classified.category === 'network'
+                ? 400 + Math.floor(Math.random() * 300)
+                : 600 + attempt * 400;
+
+            const retryAfter =
+                error?.headers?.get?.('retry-after') || error?.response?.headers?.['retry-after'];
             if (retryAfter) {
                 const sec = Number(retryAfter);
-                if (!Number.isNaN(sec) && sec > 0) wait = Math.min(sec * 1000, 8000);
+                if (!Number.isNaN(sec) && sec > 0) wait = Math.min(sec * 1000, 3000);
             }
-            wait = Math.min(wait + Math.floor(Math.random() * 250), 8000);
+            wait = Math.min(wait, 3000);
             await sleep(wait);
         }
     }
@@ -327,10 +345,6 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
     };
 }
 
-/**
- * Optional xAI / Grok chat completions (OpenAI-compatible).
- * Only used for technical failures / empty responses, never for safety blocks.
- */
 async function callGrok({ systemInstruction, history, userMessage, messageId }) {
     if (!XAI_API_KEY) {
         return { ok: false, category: 'not_configured', text: null, provider: 'xai' };
@@ -353,7 +367,7 @@ async function callGrok({ systemInstruction, history, userMessage, messageId }) 
         const body = {
             model: XAI_MODEL || 'grok-3-mini',
             messages,
-            max_tokens: MAX_OUTPUT_TOKENS || 100,
+            max_tokens: MAX_OUTPUT_TOKENS || 60,
             temperature: 0.9
         };
 
@@ -366,7 +380,7 @@ async function callGrok({ systemInstruction, history, userMessage, messageId }) 
                 },
                 body: JSON.stringify(body)
             }),
-            AI_REQUEST_TIMEOUT_MS,
+            Math.min(AI_REQUEST_TIMEOUT_MS || 45000, 20000),
             'xai'
         );
 
@@ -403,7 +417,7 @@ async function callGrok({ systemInstruction, history, userMessage, messageId }) 
             return { ok: false, category: 'empty', text: null, provider: 'xai' };
         }
 
-        const trimmed = text.trim();
+        const trimmed = softTrimReply(text.trim());
         logAI('info', 'xai_ok', {
             provider: 'xai',
             category: 'ok',
@@ -434,10 +448,6 @@ async function callGrok({ systemInstruction, history, userMessage, messageId }) 
     }
 }
 
-/**
- * Main entry: generate Kaori reply with Gemini → optional Grok → local contingency.
- * Always returns { text, provider, category, fromContingency } with non-empty text.
- */
 export async function generateKaoriReply({
     history = [],
     userMessage,
@@ -447,12 +457,16 @@ export async function generateKaoriReply({
 }) {
     const historyGemini = (Array.isArray(history) ? history : []).map((m) => ({
         role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user',
-        parts: [{ text: String(m.content || '').slice(0, 500) }]
+        parts: [{ text: String(m.content || '').slice(0, 400) }]
     }));
 
-    const fullUserText = extraContext
-        ? `${extraContext}\n\nMENSAGEM:\n${userMessage}`
-        : userMessage;
+    const fullUserText = [
+        extraContext || '',
+        BREVITY_NUDGE,
+        `MENSAGEM:\n${userMessage}`
+    ]
+        .filter(Boolean)
+        .join('\n\n');
 
     const contents = [
         ...historyGemini,
@@ -478,7 +492,6 @@ export async function generateKaoriReply({
         };
     }
 
-    // Explicit safety block: local soft reply, never secondary provider
     if (geminiResult.category === 'safety') {
         const text = pickLocal(SAFETY_REPLIES);
         logAI('info', 'contingency_safety', {
@@ -496,7 +509,6 @@ export async function generateKaoriReply({
         };
     }
 
-    // Technical failure or empty → optional Grok
     const technicalCategories = new Set([
         'empty',
         'server',
@@ -508,7 +520,6 @@ export async function generateKaoriReply({
     ]);
 
     if (technicalCategories.has(geminiResult.category) && XAI_API_KEY) {
-        // Do not fallback on pure auth/invalid if we know key is wrong — still try once if configured
         const skipFallback =
             geminiResult.category === 'auth' || geminiResult.category === 'invalid_request';
 
@@ -550,10 +561,7 @@ export async function generateKaoriReply({
     };
 }
 
-/**
- * Final guard before any Discord send.
- */
 export function ensureSendableText(text, fallback = null) {
-    if (isNonEmptyText(text)) return text.trim();
+    if (isNonEmptyText(text)) return softTrimReply(text.trim());
     return isNonEmptyText(fallback) ? fallback.trim() : pickLocal(CONTINGENCY_REPLIES);
 }
