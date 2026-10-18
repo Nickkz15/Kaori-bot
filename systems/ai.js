@@ -29,9 +29,80 @@ const SAFETY_REPLIES = [
     'Prefiro não seguir por esse caminho. Outra pergunta?'
 ];
 
-const BREVITY_NUDGE =
+const BREVITY_NUDGE_SHORT =
     'INSTRUÇÃO DE RESPOSTA: responda em UMA frase curta (cerca de 5 a 20 palavras). ' +
     'Sem parágrafo, sem introdução, sem explicação extra. Vá direto ao ponto.';
+
+const BREVITY_NUDGE_EXTENDED =
+    'INSTRUÇÃO DE RESPOSTA: esta pergunta pede um pouco mais de conteúdo. ' +
+    'Use 2 a 5 frases curtas no máximo — o suficiente para responder completo, sem parágrafo longo, ' +
+    'sem enrolação e sem cortar no meio. Termine a última frase normalmente.';
+
+/** Extended mode token/char caps (still bounded; not essays). */
+const EXTENDED_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS_EXTENDED) || 180;
+const EXTENDED_REPLY_CHARS = Number(process.env.MAX_REPLY_CHARS_EXTENDED) || 700;
+
+/**
+ * Detect if the user message likely needs a longer-than-casual answer
+ * (lists, explanations, "who do you know", how-to, etc.).
+ */
+export function detectReplyBudget(userMessage) {
+    const text = String(userMessage || '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+    const shortTokens = MAX_OUTPUT_TOKENS || 60;
+    const shortChars = MAX_REPLY_CHARS || 280;
+
+    const extendedPatterns = [
+        /\bquem (sao|são|e|é)\b/,
+        /\bquais (sao|são|as|os)\b/,
+        /\bquem voce conhece\b/,
+        /\bquem vc conhece\b/,
+        /\bpessoas que (voce|vc) (conhece|sabe)\b/,
+        /\blista(r)?\b/,
+        /\bnome(s)? (das|dos|de)\b/,
+        /\bmembros\b/,
+        /\bdivisoes\b/,
+        /\bdivisões\b/,
+        /\bo que e (a |o )?allied\b/,
+        /\bo que é (a |o )?allied\b/,
+        /\bexplica(r|\b)/,
+        /\bme explica\b/,
+        /\bcomo funciona\b/,
+        /\bcomo (e|é) que\b/,
+        /\bme conta\b/,
+        /\bresuma\b/,
+        /\bresumo\b/,
+        /\bdiferenca\b/,
+        /\bdiferença\b/,
+        /\bpor que\b/,
+        /\bporque\b/,
+        /\bhist[oó]ria\b/,
+        /\bconta (mais|sobre)\b/,
+        /\bfala (mais|sobre)\b/,
+        /\bdetalha\b/,
+        /\bem detalhes\b/,
+        /\bpasso a passo\b/,
+        /\bregras?\b/,
+        /\bcomo (entrar|participar|recrutar)\b/
+    ];
+
+    const needsExtended = extendedPatterns.some((re) => re.test(text));
+
+    if (needsExtended) {
+        return {
+            mode: 'extended',
+            maxTokens: Math.max(shortTokens, EXTENDED_OUTPUT_TOKENS),
+            maxChars: Math.max(shortChars, EXTENDED_REPLY_CHARS),
+            nudge: BREVITY_NUDGE_EXTENDED
+        };
+    }
+
+    return {
+        mode: 'short',
+        maxTokens: shortTokens,
+        maxChars: shortChars,
+        nudge: BREVITY_NUDGE_SHORT
+    };
+}
 
 export function logAI(level, event, meta = {}) {
     const safe = {
@@ -47,7 +118,8 @@ export function logAI(level, event, meta = {}) {
         messageId: meta.messageId || undefined,
         hasText: meta.hasText ?? undefined,
         textLen: typeof meta.textLen === 'number' ? meta.textLen : undefined,
-        fallbackUsed: meta.fallbackUsed ?? undefined
+        fallbackUsed: meta.fallbackUsed ?? undefined,
+        replyMode: meta.replyMode || undefined
     };
     const line = JSON.stringify(safe);
     if (level === 'error') console.error('[AI]', line);
@@ -65,6 +137,7 @@ function pickLocal(list) {
 
 /**
  * Soft length limit: prefer cutting at sentence end, keep Discord mentions intact.
+ * Never leaves a dangling connector like "mas", "e", "ou" when possible.
  */
 export function softTrimReply(text, maxChars = MAX_REPLY_CHARS || 280) {
     if (!isNonEmptyText(text)) return text;
@@ -72,16 +145,25 @@ export function softTrimReply(text, maxChars = MAX_REPLY_CHARS || 280) {
     if (!maxChars || t.length <= maxChars) return t;
 
     const slice = t.slice(0, maxChars);
-    const ends = ['. ', '! ', '? ', '\n'];
+    const ends = ['. ', '! ', '? ', '\n', '.\n', '!\n', '?\n'];
     let best = -1;
     for (const e of ends) {
         const i = slice.lastIndexOf(e);
-        if (i > maxChars * 0.4 && i > best) best = i + e.trim().length;
+        if (i > maxChars * 0.35 && i > best) best = i + e.trimEnd().length;
+    }
+    // Also accept terminal punctuation at end of slice
+    if (best < 0 && /[.!?]$/.test(slice.trim())) {
+        return slice.trim();
     }
     if (best > 0) return slice.slice(0, best).trim();
 
     const sp = slice.lastIndexOf(' ');
-    if (sp > maxChars * 0.5) return slice.slice(0, sp).trim();
+    if (sp > maxChars * 0.5) {
+        let cut = slice.slice(0, sp).trim();
+        // Drop trailing dangling conjunctions
+        cut = cut.replace(/\s+(mas|e|ou|porque|pra|para|com|de|da|do|que|,)\s*$/i, '').trim();
+        return cut || slice.trim();
+    }
     return slice.trim();
 }
 
@@ -205,7 +287,7 @@ function withTimeout(promise, ms, label = 'request') {
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-async function callGemini({ contents, systemInstruction, maxOutputTokens, messageId }) {
+async function callGemini({ contents, systemInstruction, maxOutputTokens, maxChars, messageId, replyMode }) {
     if (!ai) {
         const err = new Error('gemini_not_configured');
         err.status = 401;
@@ -243,7 +325,8 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
                     code: extracted.blockReason,
                     attempt,
                     durationMs,
-                    messageId
+                    messageId,
+                    replyMode
                 });
                 return {
                     ok: false,
@@ -255,7 +338,7 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
             }
 
             if (isNonEmptyText(extracted.text)) {
-                const trimmed = softTrimReply(extracted.text.trim());
+                const trimmed = softTrimReply(extracted.text.trim(), maxChars);
                 logAI('info', 'gemini_ok', {
                     provider: 'gemini',
                     category: extracted.partial ? 'partial' : 'ok',
@@ -264,7 +347,8 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
                     durationMs,
                     messageId,
                     hasText: true,
-                    textLen: trimmed.length
+                    textLen: trimmed.length,
+                    replyMode
                 });
                 return {
                     ok: true,
@@ -282,7 +366,8 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
                 attempt,
                 durationMs,
                 messageId,
-                hasText: false
+                hasText: false,
+                replyMode
             });
             lastError = { category: 'empty', retryable: attempt + 1 < maxAttempts };
             if (attempt + 1 < maxAttempts) {
@@ -305,7 +390,8 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
                 status: classified.status,
                 attempt,
                 durationMs: Date.now() - started,
-                messageId
+                messageId,
+                replyMode
             });
 
             if (!classified.retryable || attempt + 1 >= maxAttempts) {
@@ -319,10 +405,10 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
                 };
             }
 
-            // Fast retry on 5xx/network so the user is not stuck ~40s
-            let wait = classified.category === 'server' || classified.category === 'network'
-                ? 400 + Math.floor(Math.random() * 300)
-                : 600 + attempt * 400;
+            let wait =
+                classified.category === 'server' || classified.category === 'network'
+                    ? 400 + Math.floor(Math.random() * 300)
+                    : 600 + attempt * 400;
 
             const retryAfter =
                 error?.headers?.get?.('retry-after') || error?.response?.headers?.['retry-after'];
@@ -345,7 +431,7 @@ async function callGemini({ contents, systemInstruction, maxOutputTokens, messag
     };
 }
 
-async function callGrok({ systemInstruction, history, userMessage, messageId }) {
+async function callGrok({ systemInstruction, history, userMessage, maxTokens, maxChars, messageId, replyMode }) {
     if (!XAI_API_KEY) {
         return { ok: false, category: 'not_configured', text: null, provider: 'xai' };
     }
@@ -367,7 +453,7 @@ async function callGrok({ systemInstruction, history, userMessage, messageId }) 
         const body = {
             model: XAI_MODEL || 'grok-3-mini',
             messages,
-            max_tokens: MAX_OUTPUT_TOKENS || 60,
+            max_tokens: maxTokens || MAX_OUTPUT_TOKENS || 60,
             temperature: 0.9
         };
 
@@ -392,7 +478,8 @@ async function callGrok({ systemInstruction, history, userMessage, messageId }) 
                 category: classified.category,
                 status,
                 durationMs: Date.now() - started,
-                messageId
+                messageId,
+                replyMode
             });
             return {
                 ok: false,
@@ -412,12 +499,13 @@ async function callGrok({ systemInstruction, history, userMessage, messageId }) 
                 category: 'empty',
                 durationMs: Date.now() - started,
                 messageId,
-                hasText: false
+                hasText: false,
+                replyMode
             });
             return { ok: false, category: 'empty', text: null, provider: 'xai' };
         }
 
-        const trimmed = softTrimReply(text.trim());
+        const trimmed = softTrimReply(text.trim(), maxChars);
         logAI('info', 'xai_ok', {
             provider: 'xai',
             category: 'ok',
@@ -425,7 +513,8 @@ async function callGrok({ systemInstruction, history, userMessage, messageId }) 
             messageId,
             hasText: true,
             textLen: trimmed.length,
-            fallbackUsed: true
+            fallbackUsed: true,
+            replyMode
         });
 
         return { ok: true, category: 'ok', text: trimmed, provider: 'xai' };
@@ -436,7 +525,8 @@ async function callGrok({ systemInstruction, history, userMessage, messageId }) 
             category: classified.category,
             status: classified.status,
             durationMs: Date.now() - started,
-            messageId
+            messageId,
+            replyMode
         });
         return {
             ok: false,
@@ -455,6 +545,8 @@ export async function generateKaoriReply({
     extraContext = '',
     messageId = null
 }) {
+    const budget = detectReplyBudget(userMessage);
+
     const historyGemini = (Array.isArray(history) ? history : []).map((m) => ({
         role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user',
         parts: [{ text: String(m.content || '').slice(0, 400) }]
@@ -462,7 +554,7 @@ export async function generateKaoriReply({
 
     const fullUserText = [
         extraContext || '',
-        BREVITY_NUDGE,
+        budget.nudge,
         `MENSAGEM:\n${userMessage}`
     ]
         .filter(Boolean)
@@ -479,8 +571,10 @@ export async function generateKaoriReply({
     const geminiResult = await callGemini({
         contents,
         systemInstruction,
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
-        messageId
+        maxOutputTokens: budget.maxTokens,
+        maxChars: budget.maxChars,
+        messageId,
+        replyMode: budget.mode
     });
 
     if (geminiResult.ok && isNonEmptyText(geminiResult.text)) {
@@ -488,7 +582,8 @@ export async function generateKaoriReply({
             text: geminiResult.text.trim(),
             provider: 'gemini',
             category: geminiResult.category,
-            fromContingency: false
+            fromContingency: false,
+            replyMode: budget.mode
         };
     }
 
@@ -499,13 +594,15 @@ export async function generateKaoriReply({
             category: 'safety',
             messageId,
             hasText: true,
-            textLen: text.length
+            textLen: text.length,
+            replyMode: budget.mode
         });
         return {
             text,
             provider: 'local',
             category: 'safety',
-            fromContingency: true
+            fromContingency: true,
+            replyMode: budget.mode
         };
     }
 
@@ -528,7 +625,10 @@ export async function generateKaoriReply({
                 systemInstruction,
                 history,
                 userMessage: fullUserText,
-                messageId
+                maxTokens: budget.maxTokens,
+                maxChars: budget.maxChars,
+                messageId,
+                replyMode: budget.mode
             });
 
             if (grokResult.ok && isNonEmptyText(grokResult.text)) {
@@ -536,7 +636,8 @@ export async function generateKaoriReply({
                     text: grokResult.text.trim(),
                     provider: 'xai',
                     category: grokResult.category,
-                    fromContingency: false
+                    fromContingency: false,
+                    replyMode: budget.mode
                 };
             }
         }
@@ -550,18 +651,21 @@ export async function generateKaoriReply({
         messageId,
         hasText: true,
         textLen: text.length,
-        fallbackUsed: Boolean(XAI_API_KEY)
+        fallbackUsed: Boolean(XAI_API_KEY),
+        replyMode: budget.mode
     });
 
     return {
         text,
         provider: 'local',
         category: geminiResult.category || 'unknown',
-        fromContingency: true
+        fromContingency: true,
+        replyMode: budget.mode
     };
 }
 
 export function ensureSendableText(text, fallback = null) {
-    if (isNonEmptyText(text)) return softTrimReply(text.trim());
+    // Do not re-trim with short default — generateKaoriReply already applied the right budget.
+    if (isNonEmptyText(text)) return text.trim();
     return isNonEmptyText(fallback) ? fallback.trim() : pickLocal(CONTINGENCY_REPLIES);
 }
