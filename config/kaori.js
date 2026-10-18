@@ -5,12 +5,22 @@ export const GUILD_ID = process.env.GUILD_ID;
 export const ROLE_ID = process.env.ROLE_ID;
 export const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-export const AI_MODEL = 'gemini-3.1-flash-lite';
+/** Optional secondary provider (xAI / Grok). Bot starts without it. */
+export const XAI_API_KEY = process.env.XAI_API_KEY || '';
+export const XAI_MODEL = process.env.XAI_MODEL || 'grok-3-mini';
+
+/**
+ * Primary Gemini model. Override via GEMINI_MODEL if needed.
+ * Keep in sync with models available to your API key.
+ */
+export const AI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+
 export const AI_COOLDOWN = 10 * 1000;
 export const MAX_MESSAGE_LENGTH = 500;
 export const MAX_CONCURRENT_REQUESTS = 1;
-export const MAX_OUTPUT_TOKENS = 100;
-export const MAX_AI_RETRIES = 1;
+export const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS) || 100;
+export const MAX_AI_RETRIES = Number(process.env.MAX_AI_RETRIES) || 1;
+export const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS) || 25000;
 export const FORBIDDEN_RESPONSES = [];
 
 export const SPECIAL_USERS = {
@@ -107,12 +117,15 @@ export default {
     GUILD_ID,
     ROLE_ID,
     GEMINI_API_KEY,
+    XAI_API_KEY,
+    XAI_MODEL,
     AI_MODEL,
     AI_COOLDOWN,
     MAX_MESSAGE_LENGTH,
     MAX_CONCURRENT_REQUESTS,
     MAX_OUTPUT_TOKENS,
     MAX_AI_RETRIES,
+    AI_REQUEST_TIMEOUT_MS,
     FORBIDDEN_RESPONSES,
     SPECIAL_USERS,
     AI_ALLOWED_CHANNELS,
