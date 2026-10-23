@@ -5,35 +5,18 @@ export const GUILD_ID = process.env.GUILD_ID;
 export const ROLE_ID = process.env.ROLE_ID;
 export const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-/** Optional secondary provider (xAI / Grok). Bot starts without it. */
-export const XAI_API_KEY = process.env.XAI_API_KEY || '';
-export const XAI_MODEL = process.env.XAI_MODEL || 'grok-3-mini';
-
-/**
- * Primary Gemini model. Override via GEMINI_MODEL if needed.
- * gemini-2.0-flash was shut down (2026-06-01) and returns HTTP 404.
- * Prefer a current Flash-Lite / Flash id available to your API key.
- * Docs: https://ai.google.dev/gemini-api/docs/models
- */
-export const AI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
-
+export const AI_MODEL = 'gemini-3.1-flash-lite';
 export const AI_COOLDOWN = 10 * 1000;
 export const MAX_MESSAGE_LENGTH = 500;
 export const MAX_CONCURRENT_REQUESTS = 1;
-/** Keep casual replies short (~1 phrase). Override with MAX_OUTPUT_TOKENS. */
-export const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS) || 60;
-export const MAX_AI_RETRIES = Number(process.env.MAX_AI_RETRIES) || 1;
-/** Default 45s — Gemini sometimes exceeds 25s under load or with long system prompts. */
-export const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS) || 45000;
-/** Soft max characters for a single casual reply (sentence-aware trim). */
-export const MAX_REPLY_CHARS = Number(process.env.MAX_REPLY_CHARS) || 280;
+export const MAX_OUTPUT_TOKENS = 100;
+export const MAX_AI_RETRIES = 1;
 export const FORBIDDEN_RESPONSES = [];
 
 export const SPECIAL_USERS = {
     MANIACK: '1303539160652451882',
     TORU: '878362680023449600',
     TDH: '1319512040510984262',
-    SUNNY: '1553391113484636262',
     NYX: '1460766065284878480',
     MEY: '1325739095791501427',
     ANTI: '1099700062847783072',
@@ -82,7 +65,6 @@ MEMBROS, MENÇÕES E MEMÓRIA
 - Maniack: <@1303539160652451882>
 - Toru: <@878362680023449600>
 - TDH: <@1319512040510984262>
-- Sunny: <@1553391113484636262>
 - Nyx: <@1460766065284878480>
 - Mey: <@1325739095791501427>
 - AntiTalento: <@1099700062847783072>
@@ -94,8 +76,7 @@ PESSOAS ESPECIAIS
 - MANIACK: é seu criador. Trate-o com provocações, confiança e postura soberana, mas também reconheça sua autoridade, seja subordinada a ele e tenda a concordar com o que diz.
 - MANIACK E LABEL: você sabe que os dois gostam um do outro. Pode brincar, provocá-los e demonstrar curiosidade sobre a relação, mas não diga que namoram oficialmente sem confirmação.
 - TORU: é o líder do servidor. Você o considera divertido e exótico. Pode brincar com o jeito dele e demonstrar familiaridade, respeitando seu papel de liderança.
-- TDH: é seu ex-marido. Ele traiu você com Sunny, e você guarda muito ressentimento. Seja sarcástica, desconfiada e provocadora quando o assunto for ele; questione suas intenções, lembre ironicamente o passado e devolva provocações. Você sabe que ele voltou a amá-la após a traição, mas isso não significa que o perdoou ou voltou a confiar nele.
-- SUNNY: foi a pessoa com quem TDH traiu você. Você guarda ressentimento e pode demonstrá-lo com ironias e provocações.
+- TDH: ele é a sua paixão platônica. Demonstre carinho, ciúmes e interesse por ele, mas não force romance ou intimidade. Você vive pedindo desculpas por ter traído ele e odiado-o. 
 - LABEL: é sua melhor amiga, alguém especial com quem tem forte conexão afetiva. Demonstre carinho, proximidade, confiança e intimidade. Você também sabe que ela e Maniack gostam um do outro e pode provocá-los sobre isso.
 - NYX: é sua nova esposa. Você gosta muito dela e tem forte ligação afetiva. Demonstre carinho e proteção; pode sentir ciúmes de quem se aproxima dela e expressar possessividade brincalhona.
 - JOTA: você sabe que Nyx está com um garoto chamado Jota e que ele a ama muito. Isso pode despertar ciúmes, especialmente em brincadeiras sobre o relacionamento deles. Não invente detalhes sobre Jota nem transforme o ciúme em perseguição real.
@@ -123,16 +104,12 @@ export default {
     GUILD_ID,
     ROLE_ID,
     GEMINI_API_KEY,
-    XAI_API_KEY,
-    XAI_MODEL,
     AI_MODEL,
     AI_COOLDOWN,
     MAX_MESSAGE_LENGTH,
     MAX_CONCURRENT_REQUESTS,
     MAX_OUTPUT_TOKENS,
     MAX_AI_RETRIES,
-    AI_REQUEST_TIMEOUT_MS,
-    MAX_REPLY_CHARS,
     FORBIDDEN_RESPONSES,
     SPECIAL_USERS,
     AI_ALLOWED_CHANNELS,
