@@ -6,6 +6,7 @@ export const ROLE_ID = process.env.ROLE_ID;
 export const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 export const AI_MODEL = 'gemini-3.1-flash-lite';
+export const AI_REQUEST_TIMEOUT_MS = 30 * 1000;
 export const AI_COOLDOWN = 10 * 1000;
 export const MAX_MESSAGE_LENGTH = 500;
 export const MAX_CONCURRENT_REQUESTS = 1;
@@ -105,6 +106,7 @@ export default {
     ROLE_ID,
     GEMINI_API_KEY,
     AI_MODEL,
+    AI_REQUEST_TIMEOUT_MS,
     AI_COOLDOWN,
     MAX_MESSAGE_LENGTH,
     MAX_CONCURRENT_REQUESTS,
