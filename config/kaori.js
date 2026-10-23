@@ -9,6 +9,7 @@ export const AI_MODEL = 'gemini-3.1-flash-lite';
 export const AI_REQUEST_TIMEOUT_MS = 30 * 1000;
 export const AI_COOLDOWN = 10 * 1000;
 export const MAX_MESSAGE_LENGTH = 500;
+export const MAX_REPLY_CHARS = 2000;
 export const MAX_CONCURRENT_REQUESTS = 1;
 export const MAX_OUTPUT_TOKENS = 100;
 export const MAX_AI_RETRIES = 1;
@@ -109,6 +110,7 @@ export default {
     AI_REQUEST_TIMEOUT_MS,
     AI_COOLDOWN,
     MAX_MESSAGE_LENGTH,
+    MAX_REPLY_CHARS,
     MAX_CONCURRENT_REQUESTS,
     MAX_OUTPUT_TOKENS,
     MAX_AI_RETRIES,
