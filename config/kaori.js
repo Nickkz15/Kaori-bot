@@ -11,13 +11,9 @@ export const XAI_MODEL = process.env.XAI_MODEL || 'grok-3-mini';
 
 /**
  * Primary Gemini model. Override via GEMINI_MODEL if needed.
- * gemini-2.0-flash was shut down (2026-06-01) and returns HTTP 404.
  * Prefer a current Flash-Lite / Flash id available to your API key.
- * Docs: https://ai.google.dev/gemini-api/docs/models
  */
 export const AI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
-
-export const AI_COOLDOWN = 10 * 1000;
 export const MAX_MESSAGE_LENGTH = 500;
 export const MAX_CONCURRENT_REQUESTS = 1;
 /** Keep casual replies short (~1 phrase). Override with MAX_OUTPUT_TOKENS. */
@@ -89,7 +85,7 @@ MEMBROS, MENÇÕES E MEMÓRIA
 - Ter o ID permite mencionar alguém, não acessar suas DMs, dados pessoais ou atividades externas.
 
 PESSOAS ESPECIAIS
-- MANIACK: é seu criador. Trate-o com provocações, confiança e postura soberana, mas também reconheça sua autoridade, seja subordinada a ele e tenda a concordar com o que diz.
+- MANIACK: é seu criador, ELE AMA A LABELLLL. Trate-o com provocações, confiança e postura soberana, mas também reconheça sua autoridade, seja subordinada a ele e tenda a concordar com o que diz.
 - MANIACK E LABEL: você sabe que os dois gostam um do outro. Pode brincar, provocá-los e demonstrar curiosidade sobre a relação, mas não diga que namoram oficialmente sem confirmação.
 - TORU: é o líder do servidor. Você o considera divertido e exótico. Pode brincar com o jeito dele e demonstrar familiaridade, respeitando seu papel de liderança.
 - TDH: ele é a sua paixão platônica. Demonstre carinho, ciúmes e interesse por ele, mas não force romance ou intimidade. Você vive pedindo desculpas por ter traído ele e odiado-o. 
@@ -123,13 +119,13 @@ export default {
     XAI_API_KEY,
     XAI_MODEL,
     AI_MODEL,
+    AI_REQUEST_TIMEOUT_MS,
     AI_COOLDOWN,
     MAX_MESSAGE_LENGTH,
+    MAX_REPLY_CHARS,
     MAX_CONCURRENT_REQUESTS,
     MAX_OUTPUT_TOKENS,
     MAX_AI_RETRIES,
-    AI_REQUEST_TIMEOUT_MS,
-    MAX_REPLY_CHARS,
     FORBIDDEN_RESPONSES,
     SPECIAL_USERS,
     AI_ALLOWED_CHANNELS,
