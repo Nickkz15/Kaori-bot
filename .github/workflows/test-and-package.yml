@@ -39,7 +39,7 @@ jobs:
       - name: Package full project
         run: |
           zip -r Kaori-Allied-Admission-Update.zip . \
-            -x ".git/*" "node_modules/*" ".env" ".env.*" "!*.example"
+            -x ".git/*" "node_modules/*" ".env" ".env.*" "Kaori-Allied-Admission-Update.zip"
 
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
