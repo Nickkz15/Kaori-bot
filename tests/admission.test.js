@@ -65,7 +65,7 @@ test('admission panel keeps all copy inside the embed and has safe button compon
     assert.equal(embed.image.url, 'https://example.com/allied.gif');
     assert.equal(embed.fields.length, 3);
     assert.equal(payload.components[0].components.length, 4);
-    assert.equal(payload.components[0].components[3].emoji.name, '🔰');
+    assert.equal(payload.components[0].components[3].toJSON().emoji.name, '🔰');
 });
 
 test('admission decision messages are safe and use the expected wording', () => {
