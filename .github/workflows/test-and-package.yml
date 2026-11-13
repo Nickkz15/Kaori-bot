@@ -1,0 +1,47 @@
+name: Test and package Kaori
+
+on:
+  push:
+    branches:
+      - feature/admission-acceptance-panel
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run automated tests
+        run: npm test
+
+      - name: Check modified JavaScript syntax
+        run: |
+          node --check systems/alliedAdmission.js
+          node --check commands/allied-admission.js
+
+      - name: Package full project
+        run: |
+          zip -r Kaori-Allied-Admission-Update.zip . \
+            -x ".git/*" "node_modules/*" ".env" ".env.*" "!*.example"
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kaori-Allied-Admission-Update
+          path: Kaori-Allied-Admission-Update.zip
+          if-no-files-found: error
+          retention-days: 14
