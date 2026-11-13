@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateAdmissionQuestions, parseAdmissionColor, buildAdmissionPanelPayload, buildAdmissionWelcomeMessage, buildAdmissionRejectionMessage } from '../systems/alliedAdmission.js';
+import { validateAdmissionQuestions, parseAdmissionColor, buildAdmissionPanelPayload, buildAdmissionWelcomeMessage, buildAdmissionRejectionMessage, isServerTagRoleConflict } from '../systems/alliedAdmission.js';
 import { buildEmbedMessagePayload, parseEmbedJson } from '../systems/alliedEmbed.js';
 
 test('admission questions enforce Discord modal limits', () => {
@@ -75,4 +75,12 @@ test('admission decision messages are safe and use the expected wording', () => 
     );
     assert.match(buildAdmissionRejectionMessage(), /pode tentar novamente/i);
     assert.throws(() => buildAdmissionWelcomeMessage('not-a-discord-id'), /ID de usuário inválido/);
+});
+
+
+test('server tag role must be different from the final Allied member role', () => {
+    assert.equal(isServerTagRoleConflict('123', '123'), true);
+    assert.equal(isServerTagRoleConflict('123', '456'), false);
+    assert.equal(isServerTagRoleConflict('123', null), false);
+    assert.equal(isServerTagRoleConflict(null, '123'), false);
 });
