@@ -15,7 +15,8 @@ import { pool } from '../database/database.js';
 import { GUILD_ID } from '../config/kaori.js';
 
 const CARMINE = 0x8b1a1a;
-const ACTIVE_STATUSES = ['creating', 'open', 'waiting_info'];
+const REVIEWABLE_STATUSES = ['open', 'waiting_info'];
+const CLOSABLE_STATUSES = ['creating', 'open', 'waiting_info'];
 const divisionConfigCache = new Map();
 
 export const DEFAULT_DIVISION_QUESTIONS = Object.freeze([
@@ -177,6 +178,12 @@ export async function ensureDivisionTicketSchema() {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_allied_division_one_active_request
             ON allied_division_requests (guild_id, user_id, division_key)
             WHERE status IN ('creating', 'open', 'waiting_info');
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_allied_division_one_active_request_v2
+            ON allied_division_requests (guild_id, user_id, division_key)
+            WHERE status IN ('creating', 'open', 'waiting_info', 'reviewing');
+        UPDATE allied_division_requests
+            SET status = 'open', reviewer_id = NULL, updated_at = NOW()
+            WHERE status = 'reviewing';
         CREATE INDEX IF NOT EXISTS idx_allied_division_request_queue
             ON allied_division_requests (guild_id, status, created_at DESC);
     `);
@@ -572,6 +579,17 @@ async function getDivisionRequest(id, guildId) {
     return result.rows[0] || null;
 }
 
+async function claimDivisionRequest(id, guildId, reviewerId) {
+    const result = await pool.query(
+        `UPDATE allied_division_requests
+         SET status='reviewing', reviewer_id=$3, updated_at=NOW()
+         WHERE id=$1 AND guild_id=$2 AND status = ANY($4::text[])
+         RETURNING *`,
+        [id, guildId, reviewerId, REVIEWABLE_STATUSES]
+    );
+    return result.rows[0] || null;
+}
+
 async function setDivisionRequestStatus(id, guildId, status, reviewerId = null, note = null) {
     await pool.query(
         `UPDATE allied_division_requests SET status=$3, reviewer_id=COALESCE($4,reviewer_id),
@@ -582,17 +600,37 @@ async function setDivisionRequestStatus(id, guildId, status, reviewerId = null, 
     );
 }
 
+async function closeDivisionRequestIfOpen(id, guildId, reviewerId) {
+    const result = await pool.query(
+        `UPDATE allied_division_requests
+         SET status='closed', reviewer_id=COALESCE($3,reviewer_id), reviewed_at=NOW(), updated_at=NOW()
+         WHERE id=$1 AND guild_id=$2 AND status = ANY($4::text[])
+         RETURNING id`,
+        [id, guildId, reviewerId, CLOSABLE_STATUSES]
+    );
+    return result.rowCount > 0;
+}
+
 async function handleDivisionReview(interaction, action, id) {
     await interaction.deferReply({ ephemeral: true });
     const config = await getDivisionTicketConfig(interaction.guildId);
-    const request = await getDivisionRequest(id, interaction.guildId);
+    let request = await getDivisionRequest(id, interaction.guildId);
     if (!request) return interaction.editReply({ content: 'Candidatura não encontrada.' });
     const reviewer = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
     const requestDivisionAccess = { reviewer_role_ids: Array.isArray(request.reviewer_role_ids) ? request.reviewer_role_ids : [] };
     if (!reviewer || !canReview(reviewer, config, requestDivisionAccess)) return interaction.editReply({ content: 'Somente a equipe autorizada para esta divisão pode revisar candidaturas.' });
-    if (!ACTIVE_STATUSES.includes(request.status)) return interaction.editReply({ content: `Esta candidatura já está **${request.status}**.` });
+    if (!REVIEWABLE_STATUSES.includes(request.status)) {
+        const statusMessage = request.status === 'reviewing'
+            ? 'Esta candidatura já está sendo analisada por outra pessoa da equipe.'
+            : `Esta candidatura já está **${request.status}**.`;
+        return interaction.editReply({ content: statusMessage });
+    }
     const ticket = await interaction.guild.channels.fetch(request.channel_id).catch(() => null);
     if (!ticket?.isTextBased()) return interaction.editReply({ content: 'Canal de atendimento não encontrado.' });
+
+    const previousStatus = request.status;
+    request = await claimDivisionRequest(id, interaction.guildId, interaction.user.id);
+    if (!request) return interaction.editReply({ content: 'Outra pessoa da equipe começou a analisar esta candidatura. Atualize o atendimento.' });
 
     if (action === 'approve') {
         const member = await interaction.guild.members.fetch(request.user_id).catch(() => null);
@@ -602,10 +640,12 @@ async function handleDivisionReview(interaction, action, id) {
         }
         const role = await interaction.guild.roles.fetch(request.division_role_id).catch(() => null);
         if (!role || role.id === interaction.guild.roles.everyone.id || role.managed) {
+            await setDivisionRequestStatus(id, interaction.guildId, previousStatus).catch(() => {});
             return interaction.editReply({ content: 'O cargo desta divisão não existe mais ou é gerenciado por integração.' });
         }
         const botMember = interaction.guild.members.me || await interaction.guild.members.fetch(interaction.client.user.id).catch(() => null);
         if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles) || botMember.roles.highest.position <= role.position) {
+            await setDivisionRequestStatus(id, interaction.guildId, previousStatus).catch(() => {});
             return interaction.editReply({ content: 'Não consigo atribuir esse cargo. Verifique Gerenciar Cargos e a hierarquia da Kaori.' });
         }
         let added = false;
@@ -617,6 +657,9 @@ async function handleDivisionReview(interaction, action, id) {
             await setDivisionRequestStatus(id, interaction.guildId, 'approved', interaction.user.id);
         } catch (error) {
             if (added) await member.roles.remove(role, 'Reversão por falha ao registrar aprovação').catch(() => {});
+            await setDivisionRequestStatus(id, interaction.guildId, previousStatus).catch((statusError) => {
+                console.error('[AlliedDivisionTickets] failed to release review claim:', statusError.message);
+            });
             console.error('[AlliedDivisionTickets] approve:', error);
             return interaction.editReply({ content: `Não consegui concluir a aprovação: ${truncate(error.message, 180)}.` });
         }
@@ -652,7 +695,15 @@ async function handleDivisionClose(interaction, id) {
     const owner = request.user_id === interaction.user.id;
     const member = owner ? null : await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
     if (!owner && (!member || !canReview(member, config, requestDivisionAccess))) return interaction.editReply({ content: 'Somente o autor ou a equipe autorizada para esta divisão pode encerrar este atendimento.' });
-    if (ACTIVE_STATUSES.includes(request.status)) await setDivisionRequestStatus(id, interaction.guildId, 'closed', interaction.user.id);
+    if (request.status === 'reviewing') {
+        return interaction.editReply({ content: 'A equipe está analisando esta candidatura. Aguarde a conclusão antes de encerrar.' });
+    }
+    if (CLOSABLE_STATUSES.includes(request.status)) {
+        const closed = await closeDivisionRequestIfOpen(id, interaction.guildId, interaction.user.id);
+        if (!closed) {
+            return interaction.editReply({ content: 'A equipe começou a analisar esta candidatura. Aguarde a conclusão antes de encerrar.' });
+        }
+    }
     await interaction.channel.permissionOverwrites.edit(request.user_id, { SendMessages: false, AddReactions: false }).catch(() => {});
     await interaction.channel.setName(`encerrado-div-${id}`.slice(0, 95)).catch(() => {});
     await interaction.message.edit({ components: [] }).catch(() => {});

@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test tests/ai.test.js"
+    "test": "node --test tests/ai.test.js tests/admission.test.js tests/division-tickets.test.js"
   },
   "author": "",
   "license": "ISC",

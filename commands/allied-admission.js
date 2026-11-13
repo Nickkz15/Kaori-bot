@@ -56,7 +56,7 @@ export const alliedAdmissionCommand = new SlashCommandBuilder()
                 o.setName('cargo_membro').setDescription('Cargo concedido somente após aprovação da equipe')
             )
             .addRoleOption((o) =>
-                o.setName('cargo_provisorio').setDescription('Cargo provisório opcional; não é concedido automaticamente')
+                o.setName('cargo_provisorio').setDescription('Cargo temporário opcional atribuído ao enviar candidatura; deve ter acesso limitado')
             )
             .addRoleOption((o) =>
                 o.setName('cargo_equipe').setDescription('Cargo autorizado a revisar solicitações')
@@ -138,7 +138,7 @@ export async function executeAlliedAdmission(interaction) {
         if (memberRole) patch.member_role_id = memberRole.id;
         if (pendingRole) patch.pending_role_id = pendingRole.id;
         if (staffRole) {
-            if (staffRole.id === interaction.guild.roles.everyone.id) {
+            if (staffRole.id === interaction.guild.roles.everyone.id || staffRole.managed) {
                 return interaction.reply({ content: '`@everyone` não pode ser um cargo de revisão.', ephemeral: true });
             }
             const current = await getAdmissionConfig(guildId);
@@ -245,7 +245,7 @@ export async function executeAlliedAdmission(interaction) {
 
             if (!memberRole || memberRole.id === interaction.guild.roles.everyone.id || memberRole.managed) errors.push('Cargo final de membro inválido ou gerenciado por integração.');
             if (!panelChannel?.isTextBased()) errors.push('Canal do painel não encontrado ou não é de texto.');
-            if (!staffRoles.some((role) => role && role.id !== interaction.guild.roles.everyone.id)) errors.push('Configure pelo menos um cargo de equipe para revisar as solicitações.');
+            if (!staffRoles.some((role) => role && role.id !== interaction.guild.roles.everyone.id && !role.managed)) errors.push('Configure pelo menos um cargo normal de equipe para revisar as solicitações.');
             if (config.ticket_category_id && (!ticketCategory || ticketCategory.type !== ChannelType.GuildCategory)) errors.push('Categoria de atendimentos inválida ou inacessível.');
             if (config.log_channel_id && !logChannel?.isTextBased()) errors.push('Canal de logs inválido ou inacessível.');
             if (!botMember?.permissions?.has(PermissionFlagsBits.ManageChannels)) errors.push('A Kaori precisa de Gerenciar Canais.');

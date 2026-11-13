@@ -14,6 +14,7 @@ export const XAI_MODEL = process.env.XAI_MODEL || 'grok-3-mini';
  * Prefer a current Flash-Lite / Flash id available to your API key.
  */
 export const AI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
+export const AI_COOLDOWN = 10 * 1000;
 export const MAX_MESSAGE_LENGTH = 500;
 export const MAX_CONCURRENT_REQUESTS = 1;
 /** Keep casual replies short (~1 phrase). Override with MAX_OUTPUT_TOKENS. */

@@ -14,7 +14,8 @@ import { pool } from '../database/database.js';
 import { GUILD_ID } from '../config/kaori.js';
 
 const CARMINE = 0x8b1a1a;
-const ACTIVE_STATUSES = ['creating', 'open', 'waiting_info'];
+const REVIEWABLE_STATUSES = ['open', 'waiting_info'];
+const CLOSABLE_STATUSES = ['creating', 'open', 'waiting_info'];
 const admissionConfigCache = new Map();
 
 export const ADMISSION_TYPES = Object.freeze({
@@ -184,6 +185,12 @@ export async function ensureAdmissionSchema() {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_allied_admission_one_active_per_user
             ON allied_admission_applications (guild_id, user_id)
             WHERE status IN ('creating', 'open', 'waiting_info');
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_allied_admission_one_active_per_user_v2
+            ON allied_admission_applications (guild_id, user_id)
+            WHERE status IN ('creating', 'open', 'waiting_info', 'reviewing');
+        UPDATE allied_admission_applications
+            SET status = 'open', reviewer_id = NULL, updated_at = NOW()
+            WHERE status = 'reviewing';
         CREATE INDEX IF NOT EXISTS idx_allied_admission_queue
             ON allied_admission_applications (guild_id, status, created_at DESC);
     `);
@@ -442,6 +449,17 @@ async function getApplication(id, guildId) {
     return result.rows[0] || null;
 }
 
+async function claimApplicationForReview(id, guildId, reviewerId) {
+    const result = await pool.query(
+        `UPDATE allied_admission_applications
+         SET status = 'reviewing', reviewer_id = $3, updated_at = NOW()
+         WHERE id = $1 AND guild_id = $2 AND status = ANY($4::text[])
+         RETURNING *`,
+        [id, guildId, reviewerId, REVIEWABLE_STATUSES]
+    );
+    return result.rows[0] || null;
+}
+
 async function setApplicationStatus(id, guildId, status, reviewerId = null, reviewNote = null) {
     return pool.query(
         `UPDATE allied_admission_applications
@@ -451,6 +469,17 @@ async function setApplicationStatus(id, guildId, status, reviewerId = null, revi
          WHERE id = $1 AND guild_id = $2`,
         [id, guildId, status, reviewerId, reviewNote]
     );
+}
+
+async function closeApplicationIfOpen(id, guildId, reviewerId) {
+    const result = await pool.query(
+        `UPDATE allied_admission_applications
+         SET status='closed', reviewer_id=COALESCE($3, reviewer_id), reviewed_at=NOW(), updated_at=NOW()
+         WHERE id=$1 AND guild_id=$2 AND status = ANY($4::text[])
+         RETURNING id`,
+        [id, guildId, reviewerId, CLOSABLE_STATUSES]
+    );
+    return result.rowCount > 0;
 }
 
 async function createPrivateTicket(interaction, member, kind, answers, config) {
@@ -634,10 +663,13 @@ async function handleReviewAction(interaction, action, id) {
         return interaction.editReply({ content: 'Somente a equipe autorizada pode revisar solicitações.' });
     }
 
-    const application = await getApplication(id, interaction.guildId);
+    let application = await getApplication(id, interaction.guildId);
     if (!application) return interaction.editReply({ content: 'Solicitação não encontrada.' });
-    if (!ACTIVE_STATUSES.includes(application.status)) {
-        return interaction.editReply({ content: `Esta solicitação já está **${application.status}**.` });
+    if (!REVIEWABLE_STATUSES.includes(application.status)) {
+        const statusMessage = application.status === 'reviewing'
+            ? 'Esta solicitação já está sendo analisada por outra pessoa da equipe.'
+            : `Esta solicitação já está **${application.status}**.`;
+        return interaction.editReply({ content: statusMessage });
     }
 
     const ticket = await interaction.guild.channels.fetch(application.channel_id).catch(() => null);
@@ -645,15 +677,31 @@ async function handleReviewAction(interaction, action, id) {
         return interaction.editReply({ content: 'Canal de atendimento não encontrado.' });
     }
 
+    const previousStatus = application.status;
+    application = await claimApplicationForReview(id, interaction.guildId, interaction.user.id);
+    if (!application) {
+        return interaction.editReply({ content: 'Outra pessoa da equipe começou a analisar esta solicitação. Atualize o atendimento.' });
+    }
+
     if (action === 'approve') {
         if (application.application_type !== 'entry') {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
             return interaction.editReply({ content: 'Somente solicitações de entrada podem conceder o cargo de membro.' });
         }
         if (!config.member_role_id) {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
             return interaction.editReply({ content: 'Configure o cargo final com `/allied-admission configurar` antes de aprovar.' });
         }
         const role = await interaction.guild.roles.fetch(config.member_role_id).catch(() => null);
-        if (!role) return interaction.editReply({ content: 'O cargo final configurado não existe mais.' });
+        if (!role || role.id === interaction.guild.roles.everyone.id || role.managed) {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
+            return interaction.editReply({ content: 'O cargo final configurado não existe mais ou não pode ser atribuído.' });
+        }
+        const botMember = interaction.guild.members.me || await interaction.guild.members.fetch(interaction.client.user.id).catch(() => null);
+        if (!botMember?.permissions?.has(PermissionFlagsBits.ManageRoles) || botMember.roles.highest.position <= role.position) {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
+            return interaction.editReply({ content: 'A Kaori precisa de Gerenciar Cargos e ter seu cargo mais alto acima do cargo final de membro.' });
+        }
         const member = await interaction.guild.members.fetch(application.user_id).catch(() => null);
         if (!member) {
             await setApplicationStatus(id, interaction.guildId, 'cancelled', interaction.user.id, 'Candidato não está mais no servidor.');
@@ -684,6 +732,9 @@ async function handleReviewAction(interaction, action, id) {
                     console.error('[AlliedAdmission] role rollback failed:', rollbackError.message);
                 });
             }
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch((statusError) => {
+                console.error('[AlliedAdmission] failed to release review claim:', statusError.message);
+            });
             console.error('[AlliedAdmission] approve:', error);
             return interaction.editReply({ content: `Não consegui concluir a aprovação. Confira a hierarquia de cargos, Gerenciar Cargos do bot e a conexão com o PostgreSQL. (${truncate(error.message, 180)})` });
         }
@@ -705,6 +756,7 @@ async function handleReviewAction(interaction, action, id) {
 
     if (action === 'resolve') {
         if (application.application_type === 'entry') {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
             return interaction.editReply({ content: 'Solicitações de entrada precisam da ação específica de aprovação.' });
         }
         await setApplicationStatus(id, interaction.guildId, 'accepted', interaction.user.id);
@@ -724,6 +776,7 @@ async function handleReviewAction(interaction, action, id) {
         return interaction.editReply({ content: 'Pedido de esclarecimento enviado ao candidato.' });
     }
 
+    await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
     return interaction.editReply({ content: 'Ação de revisão desconhecida.' });
 }
 
@@ -737,8 +790,14 @@ async function handleCloseAction(interaction, id) {
     if (!isOwner && (!actingMember || !canReview(actingMember, config))) {
         return interaction.editReply({ content: 'Somente o autor ou a equipe pode encerrar este atendimento.' });
     }
-    if (ACTIVE_STATUSES.includes(application.status)) {
-        await setApplicationStatus(id, interaction.guildId, 'closed', interaction.user.id);
+    if (application.status === 'reviewing') {
+        return interaction.editReply({ content: 'A equipe está analisando esta solicitação. Aguarde a conclusão antes de encerrar.' });
+    }
+    if (CLOSABLE_STATUSES.includes(application.status)) {
+        const closed = await closeApplicationIfOpen(id, interaction.guildId, interaction.user.id);
+        if (!closed) {
+            return interaction.editReply({ content: 'A equipe começou a analisar esta solicitação. Aguarde a conclusão antes de encerrar.' });
+        }
         if (application.application_type === 'entry') {
             await removePendingRole(interaction.guild, application.user_id, config, 'Atendimento de admissão encerrado');
         }

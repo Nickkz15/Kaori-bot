@@ -69,6 +69,11 @@ import { handlePollVote, handlePollModal, buildPollModal } from './systems/confe
 
 import { alliedWelcomeCommand, executeAlliedWelcome } from './commands/allied-welcome.js';
 import { alliedInvitesCommand, executeAlliedInvites } from './commands/allied-invites.js';
+import { alliedAdmissionCommand, executeAlliedAdmission } from './commands/allied-admission.js';
+import { alliedEmbedCommand, executeAlliedEmbed } from './commands/allied-embed.js';
+import { initAlliedAdmission, handleAdmissionButton, handleAdmissionModal } from './systems/alliedAdmission.js';
+import { alliedDivisionsCommand, executeAlliedDivisions } from './commands/allied-divisions.js';
+import { initAlliedDivisionTickets, handleDivisionTicketInteraction } from './systems/alliedDivisionTickets.js';
 import { initAlliedWelcomer, handleMemberJoin as alliedHandleMemberJoin } from './systems/alliedWelcomer.js';
 import {
     initAlliedInviteLogger,
@@ -197,7 +202,10 @@ const COMMAND_HANDLERS = {
     pool: executePool,
     config: executeConfig,
     'allied-welcome': executeAlliedWelcome,
-    'allied-invites': executeAlliedInvites
+    'allied-invites': executeAlliedInvites,
+    'allied-admission': executeAlliedAdmission,
+    'allied-embed': executeAlliedEmbed,
+    'allied-divisions': executeAlliedDivisions
 };
 
 client.once(Events.ClientReady, async (bot) => {
@@ -211,6 +219,9 @@ client.once(Events.ClientReady, async (bot) => {
         console.log('✅ Sistema Confess (PostgreSQL) pronto.');
         await initAlliedWelcomer();
         await initAlliedInviteLogger(bot);
+        await initAlliedAdmission();
+        await initAlliedDivisionTickets();
+        console.log('Allied Admission + Division Tickets prontos.');
         console.log('🏯 Allied Welcomer + InviteLogger prontos.');
     } catch (err) {
         console.error('❌ Falha ao inicializar PostgreSQL:', err.message);
@@ -259,7 +270,10 @@ client.once(Events.ClientReady, async (bot) => {
                     poolCommand.toJSON(),
                     configCommand.toJSON(),
                     alliedWelcomeCommand.toJSON(),
-                    alliedInvitesCommand.toJSON()
+                    alliedInvitesCommand.toJSON(),
+                    alliedAdmissionCommand.toJSON(),
+                    alliedEmbedCommand.toJSON(),
+                    alliedDivisionsCommand.toJSON()
                 ]
             }
         );
@@ -279,6 +293,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.guildId && interaction.guildId !== GUILD_ID) return;
 
     try {
+        if (
+            (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) &&
+            typeof interaction.customId === 'string' &&
+            interaction.customId.startsWith('division-ticket:')
+        ) {
+            const handled = await handleDivisionTicketInteraction(interaction);
+            if (handled) return;
+        }
+        if (interaction.isButton() && interaction.customId.startsWith('admission:')) {
+            await handleAdmissionButton(interaction);
+            return;
+        }
+        if (interaction.isModalSubmit() && interaction.customId.startsWith('admission:submit:')) {
+            await handleAdmissionModal(interaction);
+            return;
+        }
+
         if (interaction.isModalSubmit()) {
             if (interaction.customId === 'confess_modal') {
                 await handleConfessModal(interaction);
