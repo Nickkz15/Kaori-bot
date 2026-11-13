@@ -52,6 +52,12 @@ export const alliedAdmissionCommand = new SlashCommandBuilder()
             .addChannelOption((o) =>
                 o.setName('canal_logs').setDescription('Canal privado de registros das solicitações').addChannelTypes(ChannelType.GuildText)
             )
+            .addChannelOption((o) =>
+                o.setName('canal_aceitacao').setDescription('Canal onde recrutadores recebem e aprovam formulários de entrada').addChannelTypes(ChannelType.GuildText)
+            )
+            .addChannelOption((o) =>
+                o.setName('canal_conversa').setDescription('Canal onde novos membros recebem as boas-vindas após aprovação').addChannelTypes(ChannelType.GuildText)
+            )
             .addRoleOption((o) =>
                 o.setName('cargo_membro').setDescription('Cargo concedido somente após aprovação da equipe')
             )
@@ -67,7 +73,6 @@ export const alliedAdmissionCommand = new SlashCommandBuilder()
             .setDescription('Personaliza o texto e a aparência do painel')
             .addStringOption((o) => o.setName('titulo').setDescription('Título do embed').setMaxLength(256))
             .addStringOption((o) => o.setName('descricao').setDescription('Descrição do embed').setMaxLength(4096))
-            .addStringOption((o) => o.setName('texto').setDescription('Texto fora do embed').setMaxLength(2000))
             .addStringOption((o) => o.setName('cor').setDescription('Cor hexadecimal, exemplo #8B1A1A').setMaxLength(7))
             .addStringOption((o) => o.setName('autor').setDescription('Nome do autor no topo').setMaxLength(256))
             .addStringOption((o) => o.setName('autor_icone').setDescription('URL do ícone do autor; - limpa').setMaxLength(500))
@@ -123,12 +128,16 @@ export async function executeAlliedAdmission(interaction) {
         const panel = interaction.options.getChannel('canal_painel');
         const category = interaction.options.getChannel('categoria');
         const logs = interaction.options.getChannel('canal_logs');
+        const acceptance = interaction.options.getChannel('canal_aceitacao');
+        const welcome = interaction.options.getChannel('canal_conversa');
         const memberRole = interaction.options.getRole('cargo_membro');
         const pendingRole = interaction.options.getRole('cargo_provisorio');
         const staffRole = interaction.options.getRole('cargo_equipe');
         if (panel) patch.panel_channel_id = panel.id;
         if (category) patch.ticket_category_id = category.id;
         if (logs) patch.log_channel_id = logs.id;
+        if (acceptance) patch.acceptance_channel_id = acceptance.id;
+        if (welcome) patch.welcome_channel_id = welcome.id;
         if (memberRole && memberRole.id === interaction.guild.roles.everyone.id) {
             return interaction.reply({ content: 'O cargo de membro não pode ser `@everyone`.', ephemeral: true });
         }
@@ -155,7 +164,7 @@ export async function executeAlliedAdmission(interaction) {
         }
         const config = await updateAdmissionConfig(guildId, patch);
         return interaction.reply({
-            content: `Configuração salva.\nPainel: ${config.panel_channel_id ? `<#${config.panel_channel_id}>` : 'não definido'}\nCategoria: ${config.ticket_category_id ? `<#${config.ticket_category_id}>` : 'não definida'}\nCargo final: ${config.member_role_id ? `<@&${config.member_role_id}>` : 'não definido'}\nEquipe: ${config.staff_role_ids.length ? config.staff_role_ids.map((id) => `<@&${id}>`).join(', ') : 'nenhum cargo configurado'}`,
+            content: `Configuração salva.\nPainel: ${config.panel_channel_id ? `<#${config.panel_channel_id}>` : 'não definido'}\nCanal de aceitação: ${config.acceptance_channel_id ? `<#${config.acceptance_channel_id}>` : 'não definido'}\nCanal de conversa: ${config.welcome_channel_id ? `<#${config.welcome_channel_id}>` : 'não definido'}\nCategoria: ${config.ticket_category_id ? `<#${config.ticket_category_id}>` : 'não definida'}\nCargo final: ${config.member_role_id ? `<@&${config.member_role_id}>` : 'não definido'}\nEquipe: ${config.staff_role_ids.length ? config.staff_role_ids.map((id) => `<@&${id}>`).join(', ') : 'nenhum cargo configurado'}`,
             ephemeral: true,
             allowedMentions: { parse: [] }
         });
@@ -164,7 +173,7 @@ export async function executeAlliedAdmission(interaction) {
     if (sub === 'visual') {
         const patch = {};
         const fields = [
-            ['titulo', 'panel_title'], ['descricao', 'panel_description'], ['texto', 'panel_content'],
+            ['titulo', 'panel_title'], ['descricao', 'panel_description'],
             ['autor', 'panel_author'], ['rodape', 'panel_footer_text']
         ];
         for (const [option, key] of fields) {
@@ -242,11 +251,19 @@ export async function executeAlliedAdmission(interaction) {
             const logChannel = config.log_channel_id
                 ? await interaction.guild.channels.fetch(config.log_channel_id).catch(() => null)
                 : null;
+            const acceptanceChannel = config.acceptance_channel_id
+                ? await interaction.guild.channels.fetch(config.acceptanceChannel_id || config.acceptance_channel_id).catch(() => null)
+                : null;
+            const welcomeChannel = config.welcome_channel_id
+                ? await interaction.guild.channels.fetch(config.welcome_channel_id).catch(() => null)
+                : null;
 
             if (!memberRole || memberRole.id === interaction.guild.roles.everyone.id || memberRole.managed) errors.push('Cargo final de membro inválido ou gerenciado por integração.');
             if (!panelChannel?.isTextBased()) errors.push('Canal do painel não encontrado ou não é de texto.');
             if (!staffRoles.some((role) => role && role.id !== interaction.guild.roles.everyone.id && !role.managed)) errors.push('Configure pelo menos um cargo normal de equipe para revisar as solicitações.');
             if (config.ticket_category_id && (!ticketCategory || ticketCategory.type !== ChannelType.GuildCategory)) errors.push('Categoria de atendimentos inválida ou inacessível.');
+            if (!acceptanceChannel?.isTextBased()) errors.push('Configure um canal de texto válido em canal_aceitacao.');
+            if (!welcomeChannel?.isTextBased()) errors.push('Configure um canal de texto válido em canal_conversa.');
             if (config.log_channel_id && !logChannel?.isTextBased()) errors.push('Canal de logs inválido ou inacessível.');
             if (!botMember?.permissions?.has(PermissionFlagsBits.ManageChannels)) errors.push('A Kaori precisa de Gerenciar Canais.');
             if (!botMember?.permissions?.has(PermissionFlagsBits.ManageRoles)) errors.push('A Kaori precisa de Gerenciar Cargos.');
@@ -257,11 +274,12 @@ export async function executeAlliedAdmission(interaction) {
                 else if (botMember && botMember.roles.highest.position <= pendingRole.position) errors.push('O cargo mais alto da Kaori precisa ficar acima do cargo provisório.');
                 if (pendingRole && memberRole && pendingRole.id === memberRole.id) errors.push('O cargo provisório precisa ser diferente do cargo final.');
             }
-            if (panelChannel && botMember) {
-                const perms = panelChannel.permissionsFor(botMember);
-                if (!perms?.has(PermissionFlagsBits.ViewChannel)) errors.push('A Kaori precisa de Ver Canal no painel.');
-                if (!perms?.has(PermissionFlagsBits.SendMessages)) errors.push('A Kaori precisa de Enviar Mensagens no painel.');
-                if (!perms?.has(PermissionFlagsBits.EmbedLinks)) errors.push('A Kaori precisa de Inserir Links no painel.');
+            for (const [channel, label] of [[panelChannel, 'painel'], [acceptanceChannel, 'aceitação'], [welcomeChannel, 'conversa']]) {
+                if (!channel || !botMember) continue;
+                const perms = channel.permissionsFor(botMember);
+                if (!perms?.has(PermissionFlagsBits.ViewChannel)) errors.push(`A Kaori precisa de Ver Canal em #${label}.`);
+                if (!perms?.has(PermissionFlagsBits.SendMessages)) errors.push(`A Kaori precisa de Enviar Mensagens em #${label}.`);
+                if (channel === panelChannel && !perms?.has(PermissionFlagsBits.EmbedLinks)) errors.push('A Kaori precisa de Inserir Links no painel.');
             }
             if (errors.length) {
                 return interaction.reply({ content: `Não foi possível abrir a admissão:
@@ -309,6 +327,8 @@ ${errors.map((error) => `• ${error}`).join('\n')}`, ephemeral: true });
         .addFields(
             { name: 'Painel', value: channel(config.panel_channel_id), inline: true },
             { name: 'Categoria dos tickets', value: channel(config.ticket_category_id), inline: true },
+            { name: 'Canal de aceitação', value: channel(config.acceptance_channel_id), inline: true },
+            { name: 'Canal de conversa', value: channel(config.welcome_channel_id), inline: true },
             { name: 'Canal de logs', value: channel(config.log_channel_id), inline: true },
             { name: 'Cargo final', value: role(config.member_role_id), inline: true },
             { name: 'Cargo provisório', value: role(config.pending_role_id), inline: true },
