@@ -338,7 +338,7 @@ export function buildAdmissionPanelPayload(config) {
         new ButtonBuilder()
             .setCustomId('division-ticket:open')
             .setLabel('Entrar em uma divisão')
-            .setEmoji('✦')
+            .setEmoji('🔰')
             .setStyle(ButtonStyle.Primary)
     );
 
