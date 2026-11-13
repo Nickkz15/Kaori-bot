@@ -279,7 +279,21 @@ export async function executeAlliedAdmission(interaction) {
                 const perms = channel.permissionsFor(botMember);
                 if (!perms?.has(PermissionFlagsBits.ViewChannel)) errors.push(`A Kaori precisa de Ver Canal em #${label}.`);
                 if (!perms?.has(PermissionFlagsBits.SendMessages)) errors.push(`A Kaori precisa de Enviar Mensagens em #${label}.`);
-                if (channel === panelChannel && !perms?.has(PermissionFlagsBits.EmbedLinks)) errors.push('A Kaori precisa de Inserir Links no painel.');
+                if ((channel === panelChannel || channel === acceptanceChannel) && !perms?.has(PermissionFlagsBits.EmbedLinks)) {
+                    errors.push(`A Kaori precisa de Inserir Links em #${label} para publicar embeds.`);
+                }
+            }
+
+            if (acceptanceChannel) {
+                const recruitersCanView = staffRoles.some((role) => {
+                    if (!role || role.id === interaction.guild.roles.everyone.id || role.managed) return false;
+                    const rolePermissions = acceptanceChannel.permissionsFor(role);
+                    return rolePermissions?.has(PermissionFlagsBits.ViewChannel)
+                        && rolePermissions?.has(PermissionFlagsBits.ReadMessageHistory);
+                });
+                if (!recruitersCanView) {
+                    errors.push('Pelo menos um cargo de recrutador precisa de Ver Canal e Ler Histórico de Mensagens em #aceitação.');
+                }
             }
             if (errors.length) {
                 return interaction.reply({ content: `Não foi possível abrir a admissão:
