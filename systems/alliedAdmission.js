@@ -527,14 +527,29 @@ async function createAcceptanceApplication(interaction, member, answers, config)
         throw new Error('Configure um canal de texto válido em canal_aceitacao antes de receber candidaturas.');
     }
 
+    const botMember = guild.members.me || await guild.members.fetch(interaction.client.user.id).catch(() => null);
+    if (!botMember) throw new Error('Não consegui localizar o membro da Kaori no servidor.');
+    const botPermissions = acceptanceChannel.permissionsFor(botMember);
+    const missingPermissions = [];
+    if (!botPermissions?.has(PermissionFlagsBits.ViewChannel)) missingPermissions.push('Ver Canal');
+    if (!botPermissions?.has(PermissionFlagsBits.SendMessages)) missingPermissions.push('Enviar Mensagens');
+    if (!botPermissions?.has(PermissionFlagsBits.EmbedLinks)) missingPermissions.push('Inserir Links');
+    if (missingPermissions.length) {
+        throw new Error(`A Kaori não tem as seguintes permissões em #aceitação: ${missingPermissions.join(', ')}.`);
+    }
+
     const validStaffRoles = [];
     for (const roleId of [...new Set(config.staff_role_ids || [])]) {
         if (!roleId || roleId === guild.roles.everyone.id) continue;
         const role = await guild.roles.fetch(roleId).catch(() => null);
-        if (role && !role.managed) validStaffRoles.push(role.id);
+        if (!role || role.managed) continue;
+        const staffPermissions = acceptanceChannel.permissionsFor(role);
+        if (staffPermissions?.has(PermissionFlagsBits.ViewChannel) && staffPermissions?.has(PermissionFlagsBits.ReadMessageHistory)) {
+            validStaffRoles.push(role.id);
+        }
     }
     if (!validStaffRoles.length) {
-        throw new Error('Nenhum cargo de recrutador válido está configurado para revisar as candidaturas.');
+        throw new Error('Nenhum dos cargos de recrutador configurados consegue ver e ler o canal #aceitação. Ajuste as permissões do canal.');
     }
 
     const created = await pool.query(
@@ -548,6 +563,14 @@ async function createAcceptanceApplication(interaction, member, answers, config)
     let reviewMessage = null;
 
     try {
+        // Make the application reviewable before publishing the card to avoid a click race.
+        await pool.query(
+            `UPDATE allied_admission_applications
+             SET status = 'open', channel_id = $2, updated_at = NOW()
+             WHERE id = $1`,
+            [application.id, acceptanceChannel.id]
+        );
+
         const staffMentions = validStaffRoles.map((id) => `<@&${id}>`).join(' ');
         const card = buildApplicationCard(application, 'entry', answers, config);
         reviewMessage = await acceptanceChannel.send({
@@ -558,9 +581,9 @@ async function createAcceptanceApplication(interaction, member, answers, config)
 
         await pool.query(
             `UPDATE allied_admission_applications
-             SET status = 'open', channel_id = $2, message_id = $3, updated_at = NOW()
+             SET message_id = $2, updated_at = NOW()
              WHERE id = $1`,
-            [application.id, acceptanceChannel.id, reviewMessage.id]
+            [application.id, reviewMessage.id]
         );
 
         if (config.pending_role_id && config.pending_role_id !== config.member_role_id && !member.roles.cache.has(config.pending_role_id)) {
@@ -758,7 +781,13 @@ export async function handleAdmissionModal(interaction) {
                 : 'Você já possui uma solicitação em andamento. Termine ou encerre o atendimento atual antes de abrir outra.';
             return interaction.editReply({ content: duplicateMessage });
         }
-        console.error('[AlliedAdmission] create ticket:', error);
+        console.error('[AlliedAdmission] create ticket:', {
+            name: error?.name || 'Error',
+            code: error?.code ?? null,
+            status: error?.status ?? null,
+            message: error?.message || String(error),
+            channelId: kind === 'entry' ? config.acceptance_channel_id : config.ticket_category_id
+        });
         return interaction.editReply({ content: `Não consegui abrir seu atendimento: ${truncate(error.message, 250)}. Avise a equipe da Allied.` });
     }
 }
@@ -889,12 +918,26 @@ async function handleReviewAction(interaction, action, id) {
                 new ButtonBuilder().setCustomId(`admission:close:${id}`).setLabel('Encerrar atendimento').setStyle(ButtonStyle.Secondary)
             )] }).catch(() => {});
         }
-        const user = await interaction.client.users.fetch(application.user_id).catch(() => null);
+        const user = await interaction.client.users.fetch(application.user_id).catch((error) => {
+            console.warn('[AlliedAdmission] could not fetch applicant for rejection DM:', error?.code || error?.message);
+            return null;
+        });
         const rejectionMessage = application.application_type === 'entry'
             ? buildAdmissionRejectionMessage()
             : 'Sua solicitação para a Allied não foi aprovada neste momento. Consulte a equipe caso precise de esclarecimentos.';
-        await user?.send(rejectionMessage).catch(() => {});
-        return interaction.editReply({ content: application.application_type === 'entry' ? 'Candidatura recusada. O candidato foi avisado por mensagem privada.' : 'Solicitação recusada e decisão registrada.' });
+        let dmSent = false;
+        if (user) {
+            try {
+                await user.send(rejectionMessage);
+                dmSent = true;
+            } catch (error) {
+                console.warn('[AlliedAdmission] rejection DM could not be delivered:', { code: error?.code ?? null, message: error?.message || String(error) });
+            }
+        }
+        const reply = application.application_type === 'entry'
+            ? (dmSent ? 'Candidatura recusada. O candidato foi avisado por mensagem privada.' : 'Candidatura recusada, mas não consegui enviar a mensagem privada. O candidato pode estar com as DMs fechadas.')
+            : 'Solicitação recusada e decisão registrada.';
+        return interaction.editReply({ content: reply });
     }
 
     if (action === 'resolve') {
