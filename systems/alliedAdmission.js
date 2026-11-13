@@ -94,6 +94,12 @@ export function buildAdmissionRejectionMessage() {
     return 'Seu formulário para entrar na Allied foi recusado. Você pode tentar novamente enviando um novo formulário pelo painel de admissão.';
 }
 
+export function isServerTagRoleConflict(memberRoleId, serverTagRoleId) {
+    const memberId = String(memberRoleId ?? '').trim();
+    const tagId = String(serverTagRoleId ?? '').trim();
+    return Boolean(memberId && tagId && memberId === tagId);
+}
+
 const CONFIG_COLUMNS = new Set([
     'enabled', 'panel_channel_id', 'panel_message_id', 'acceptance_channel_id', 'welcome_channel_id', 'ticket_category_id', 'log_channel_id',
     'member_role_id', 'pending_role_id', 'staff_role_ids', 'panel_content', 'panel_title',
@@ -748,6 +754,11 @@ export async function handleAdmissionModal(interaction) {
             return interaction.editReply({ content: 'O cargo final da Allied não está configurado corretamente. Avise a equipe.' });
         }
         if (member.roles.cache.has(memberRole.id)) {
+            if (isServerTagRoleConflict(config.member_role_id, (await import('../config/kaori.js')).ROLE_ID)) {
+                return interaction.editReply({
+                    content: 'A verificação automática da Server Tag já atribuiu este cargo. O cargo_membro está configurado com o mesmo ID de ROLE_ID. Configure cargos separados para que novos integrantes possam enviar a candidatura.'
+                });
+            }
             return interaction.editReply({ content: 'Você já possui o cargo de membro da Allied.' });
         }
     }
