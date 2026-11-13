@@ -61,8 +61,9 @@ test('admission panel keeps all copy inside the embed and has safe button compon
 
     assert.equal(payload.content, undefined);
     assert.equal(payload.embeds.length, 1);
-    assert.equal(payload.embeds[0].image.url, 'https://example.com/allied.gif');
-    assert.equal(payload.embeds[0].fields.length, 3);
+    const embed = payload.embeds[0].toJSON();
+    assert.equal(embed.image.url, 'https://example.com/allied.gif');
+    assert.equal(embed.fields.length, 3);
     assert.equal(payload.components[0].components.length, 4);
     assert.equal(payload.components[0].components[3].emoji.name, '🔰');
 });
