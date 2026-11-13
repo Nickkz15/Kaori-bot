@@ -38,13 +38,13 @@ jobs:
 
       - name: Package full project
         run: |
-          zip -r Kaori-Allied-Admission-Update.zip . \
-            -x ".git/*" "node_modules/*" ".env" ".env.*" "Kaori-Allied-Admission-Update.zip"
+          zip -r "$RUNNER_TEMP/Kaori-Allied-Admission-Update.zip" . \
+            -x ".git/*" "node_modules/*" ".env" ".env.*"
 
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
           name: Kaori-Allied-Admission-Update
-          path: Kaori-Allied-Admission-Update.zip
+          path: ${{ runner.temp }}/Kaori-Allied-Admission-Update.zip
           if-no-files-found: error
           retention-days: 14
