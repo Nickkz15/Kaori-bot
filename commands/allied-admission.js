@@ -252,7 +252,7 @@ export async function executeAlliedAdmission(interaction) {
                 ? await interaction.guild.channels.fetch(config.log_channel_id).catch(() => null)
                 : null;
             const acceptanceChannel = config.acceptance_channel_id
-                ? await interaction.guild.channels.fetch(config.acceptanceChannel_id || config.acceptance_channel_id).catch(() => null)
+                ? await interaction.guild.channels.fetch(config.acceptance_channel_id).catch(() => null)
                 : null;
             const welcomeChannel = config.welcome_channel_id
                 ? await interaction.guild.channels.fetch(config.welcome_channel_id).catch(() => null)
