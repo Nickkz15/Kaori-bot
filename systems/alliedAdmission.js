@@ -369,12 +369,7 @@ export function buildAdmissionPanelPayload(config) {
             .setCustomId('admission:form:war')
             .setLabel('Guerra')
             .setEmoji('⚔️')
-            .setStyle(ButtonStyle.Danger),
-        new ButtonBuilder()
-            .setCustomId('division-ticket:open')
-            .setLabel('Entrar em uma divisão')
-            .setEmoji('🔰')
-            .setStyle(ButtonStyle.Primary)
+            .setStyle(ButtonStyle.Danger)
     );
 
     return {
