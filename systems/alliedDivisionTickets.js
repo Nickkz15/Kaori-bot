@@ -173,7 +173,9 @@ export async function ensureDivisionTicketSchema() {
             PRIMARY KEY (guild_id, division_key)
         );
 
-        ALTER TABLE allied_division_ticket_config ADD COLUMN IF NOT EXISTS submission_channel_id TEXT;\n\n        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS reviewer_role_ids TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE allied_division_ticket_config ADD COLUMN IF NOT EXISTS submission_channel_id TEXT;
+
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS reviewer_role_ids TEXT[] NOT NULL DEFAULT '{}';
         ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
         ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS button_label TEXT NOT NULL DEFAULT '';
         ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS button_style TEXT NOT NULL DEFAULT 'Primary';
