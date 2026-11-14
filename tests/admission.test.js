@@ -64,8 +64,13 @@ test('admission panel keeps all copy inside the embed and has safe button compon
     const embed = payload.embeds[0].toJSON();
     assert.equal(embed.image.url, 'https://example.com/allied.gif');
     assert.equal(embed.fields.length, 3);
-    assert.equal(payload.components[0].components.length, 4);
-    assert.equal(payload.components[0].components[3].toJSON().emoji.name, '🔰');
+    assert.equal(payload.components[0].components.length, 3);
+    const buttonIds = payload.components[0].components.map((button) => button.toJSON().custom_id);
+    assert.deepEqual(buttonIds, [
+        'admission:form:entry',
+        'admission:form:partnership',
+        'admission:form:war'
+    ]);
 });
 
 test('admission decision messages are safe and use the expected wording', () => {
