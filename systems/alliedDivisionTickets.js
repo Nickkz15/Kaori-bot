@@ -602,32 +602,26 @@ async function showDivisionPicker(interaction) {
         await interaction.reply({ content: 'Nenhuma divisão está recebendo candidaturas no momento.', ephemeral: true });
         return;
     }
-    if (divisions.length > 25) {
-        await interaction.reply({ content: 'A equipe precisa reduzir o número de divisões ativas para no máximo 25.', ephemeral: true });
+    await interaction.reply({ ...buildDivisionPanelPayload(config, divisions), ephemeral: true });
+}
+
+async function handleDivisionApply(interaction, divisionKey) {
+    if (!interaction.guild || !interaction.guildId || interaction.user?.bot) {
+        await interaction.reply({ content: 'Este painel só funciona para pessoas dentro da Allied.', ephemeral: true });
         return;
     }
-    const menu = new StringSelectMenuBuilder()
-        .setCustomId('division-ticket:select')
-        .setPlaceholder('Escolha a divisão que deseja integrar')
-        .setMinValues(1)
-        .setMaxValues(1)
-        .addOptions(divisions.map((division) => ({
-            label: division.name.slice(0, 100),
-            value: division.division_key,
-            description: `Solicitar ingresso em ${division.name}`.slice(0, 100),
-            ...(division.emoji ? { emoji: division.emoji } : {})
-        })));
-    const embed = new EmbedBuilder()
-        .setColor(CARMINE)
-        .setAuthor({ name: 'ALLIED · DIVISION ADMISSIONS' })
-        .setTitle('Escolha sua divisão')
-        .setDescription('Selecione a divisão na qual deseja ingressar. Em seguida, a Kaori abrirá seu formulário privado. A candidatura será analisada pela equipe responsável.');
-    await interaction.reply({
-        embeds: [embed],
-        components: [new ActionRowBuilder().addComponents(menu)],
-        ephemeral: true,
-        allowedMentions: { parse: [] }
-    });
+    const config = await getDivisionTicketConfig(interaction.guildId);
+    if (!config.enabled) {
+        await interaction.reply({ content: 'As candidaturas para divisões estão fechadas no momento.', ephemeral: true });
+        return;
+    }
+    const division = await getAlliedDivision(interaction.guildId, divisionKey);
+    if (!division?.enabled) {
+        await interaction.reply({ content: 'Essa divisão não está aceitando candidaturas no momento.', ephemeral: true });
+        return;
+    }
+    const questions = validateDivisionQuestions(division.questions?.length ? division.questions : DEFAULT_DIVISION_QUESTIONS);
+    await interaction.showModal(buildDivisionModal({ ...division, questions }));
 }
 
 async function handleDivisionSelect(interaction) {
@@ -672,8 +666,8 @@ async function handleDivisionModal(interaction) {
         answers[question.id] = value;
     }
     try {
-        const ticket = await createDivisionTicket(interaction, member, division, answers, config);
-        return interaction.editReply({ content: `Sua candidatura para **${division.name}** foi enviada. A equipe continuará o atendimento em ${ticket}. O cargo só será concedido após aprovação.` });
+        const result = await createDivisionApplication(interaction, member, division, answers, config);
+        return interaction.editReply({ content: `Sua candidatura para **${division.name}** foi enviada para ${result.channel}. Os líderes e vice-líderes responsáveis farão a análise. O cargo só será concedido após aprovação.` });
     } catch (error) {
         if (error?.code === '23505') {
             return interaction.editReply({ content: `Você já possui uma candidatura em andamento para **${division.name}**. Encerre o atendimento atual antes de abrir outra.` });
