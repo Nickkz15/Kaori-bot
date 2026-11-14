@@ -503,12 +503,10 @@ export async function executeAlliedDivisions(interaction) {
     const config = await getDivisionTicketConfig(guildId).catch(() => ({
         enabled: false,
         panel_channel_id: null,
-        ticket_category_id: null,
-        member_role_id: null,
-        staff_role_ids: []
+        submission_channel_id: null,
+        member_role_id: null
     }));
     const divisions = await listAlliedDivisions(guildId);
-    const staffCount = Array.isArray(config.staff_role_ids) ? config.staff_role_ids.length : 0;
 
     const embed = new EmbedBuilder()
         .setColor(0x8b1a1a)
