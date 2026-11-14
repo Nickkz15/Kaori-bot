@@ -302,7 +302,6 @@ export async function executeAlliedDivisions(interaction) {
         const strings = [
             ['titulo', 'panel_title'],
             ['descricao', 'panel_description'],
-            ['texto', 'panel_content'],
             ['rodape', 'panel_footer_text']
         ];
 
@@ -347,62 +346,75 @@ export async function executeAlliedDivisions(interaction) {
         const enabled = interaction.options.getBoolean('ligado', true);
 
         if (enabled) {
-            const config = await getDivisionTicketConfig(guildId).catch(() => ({
-                panel_channel_id: null,
-                ticket_category_id: null,
-                member_role_id: null,
-                staff_role_ids: []
-            }));
+            const config = await getDivisionTicketConfig(guildId);
             const divisions = await listAlliedDivisions(guildId, { enabledOnly: true });
             const botMember = interaction.guild.members.me || await interaction.guild.members.fetch(interaction.client.user.id).catch(() => null);
             const panel = config.panel_channel_id ? await interaction.guild.channels.fetch(config.panel_channel_id).catch(() => null) : null;
-            const category = config.ticket_category_id ? await interaction.guild.channels.fetch(config.ticket_category_id).catch(() => null) : null;
             const memberRole = config.member_role_id ? await interaction.guild.roles.fetch(config.member_role_id).catch(() => null) : null;
-            const staffIds = Array.isArray(config.staff_role_ids) ? config.staff_role_ids : [];
-            const staffRoles = await Promise.all(staffIds.map((id) => interaction.guild.roles.fetch(id).catch(() => null)));
-            const hasGlobalReviewers = staffRoles.some((role) => role && role.id !== interaction.guild.roles.everyone.id && !role.managed);
             const errors = [];
 
-            if (!panel?.isTextBased()) errors.push('Configure um canal de painel válido.');
-            if (config.ticket_category_id && category?.type !== ChannelType.GuildCategory) errors.push('A categoria de tíquetes é inválida.');
-            if (!memberRole || memberRole.id === interaction.guild.roles.everyone.id || memberRole.managed) errors.push('Configure o cargo de membro exigido.');
+            if (!panel?.isTextBased()) errors.push('Configure um canal de texto válido para #divisões.');
+            if (!memberRole || memberRole.id === interaction.guild.roles.everyone.id || memberRole.managed) errors.push('Configure o cargo de membro exigido para solicitar ingresso em divisões.');
             if (!divisions.length) errors.push('Cadastre ao menos uma divisão antes de ativar.');
-            if (divisions.length > 25) errors.push('O painel aceita no máximo 25 divisões ativas.');
-            if (!botMember?.permissions.has(PermissionFlagsBits.ManageChannels)) errors.push('A Kaori precisa de Gerenciar Canais.');
+            if (divisions.length > 25) errors.push('O Discord permite no máximo 25 botões no painel.');
             if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles)) errors.push('A Kaori precisa de Gerenciar Cargos.');
+            if (memberRole && botMember && botMember.roles.highest.position <= memberRole.position) {
+                errors.push('O cargo mais alto da Kaori precisa ficar acima do cargo de membro exigido.');
+            }
 
             for (const division of divisions) {
-                const role = await interaction.guild.roles.fetch(division.role_id).catch(() => null);
-                if (!role || role.id === interaction.guild.roles.everyone.id || role.managed) {
+                const divisionRole = await interaction.guild.roles.fetch(division.role_id).catch(() => null);
+                if (!divisionRole || divisionRole.id === interaction.guild.roles.everyone.id || divisionRole.managed) {
                     errors.push(`Cargo da divisão **${division.name}** inválido.`);
-                } else if (botMember && botMember.roles.highest.position <= role.position) {
-                    errors.push(`O cargo da Kaori precisa ficar acima do cargo **${role.name}**.`);
+                } else if (botMember && botMember.roles.highest.position <= divisionRole.position) {
+                    errors.push(`O cargo da Kaori precisa ficar acima do cargo **${divisionRole.name}**.`);
                 }
 
-                const reviewers = await Promise.all((division.reviewer_role_ids || []).map((id) => interaction.guild.roles.fetch(id).catch(() => null)));
-                const hasDivisionReviewers = reviewers.some((reviewerRole) => reviewerRole && reviewerRole.id !== interaction.guild.roles.everyone.id && !reviewerRole.managed);
-
-                if (!hasGlobalReviewers && !hasDivisionReviewers) {
-                    errors.push(`Configure um cargo revisor global ou específico para **${division.name}**.`);
+                const leadershipIds = [...new Set([...(division.leader_role_ids || []), ...(division.vice_role_ids || [])])];
+                if (!leadershipIds.length) {
+                    errors.push(`Cadastre ao menos um líder ou vice-líder para **${division.name}**.`);
+                    continue;
                 }
 
-                for (const reviewerRole of reviewers) {
-                    if (!reviewerRole || reviewerRole.id === interaction.guild.roles.everyone.id || reviewerRole.managed) {
-                        errors.push(`Cargo revisor inválido em **${division.name}**.`);
+                const destinationId = division.submission_channel_id || config.submission_channel_id;
+                const destination = destinationId
+                    ? await interaction.guild.channels.fetch(destinationId).catch(() => null)
+                    : null;
+                if (!destination?.isTextBased()) {
+                    errors.push(`Configure #entrada-divisão ou um canal_destino válido para **${division.name}**.`);
+                    continue;
+                }
+
+                if (botMember) {
+                    const botPermissions = destination.permissionsFor(botMember);
+                    if (!botPermissions?.has(PermissionFlagsBits.ViewChannel)) errors.push(`A Kaori precisa de Ver Canal em ${destination}.`);
+                    if (!botPermissions?.has(PermissionFlagsBits.SendMessages)) errors.push(`A Kaori precisa de Enviar Mensagens em ${destination}.`);
+                    if (!botPermissions?.has(PermissionFlagsBits.EmbedLinks)) errors.push(`A Kaori precisa de Inserir Links em ${destination}.`);
+                }
+
+                for (const roleId of leadershipIds) {
+                    const leadershipRole = await interaction.guild.roles.fetch(roleId).catch(() => null);
+                    if (!leadershipRole || leadershipRole.id === interaction.guild.roles.everyone.id || leadershipRole.managed) {
+                        errors.push(`Cargo de liderança inválido na divisão **${division.name}**.`);
+                        continue;
+                    }
+                    const rolePermissions = destination.permissionsFor(leadershipRole);
+                    if (!rolePermissions?.has(PermissionFlagsBits.ViewChannel) || !rolePermissions?.has(PermissionFlagsBits.ReadMessageHistory)) {
+                        errors.push(`O cargo ${leadershipRole} precisa de Ver Canal e Ler Histórico em ${destination}.`);
                     }
                 }
             }
 
             if (panel && botMember) {
                 const perms = panel.permissionsFor(botMember);
-                if (!perms?.has(PermissionFlagsBits.ViewChannel)) errors.push('A Kaori precisa de Ver Canal no painel.');
-                if (!perms?.has(PermissionFlagsBits.SendMessages)) errors.push('A Kaori precisa de Enviar Mensagens no painel.');
-                if (!perms?.has(PermissionFlagsBits.EmbedLinks)) errors.push('A Kaori precisa de Inserir Links no painel.');
+                if (!perms?.has(PermissionFlagsBits.ViewChannel)) errors.push('A Kaori precisa de Ver Canal em #divisões.');
+                if (!perms?.has(PermissionFlagsBits.SendMessages)) errors.push('A Kaori precisa de Enviar Mensagens em #divisões.');
+                if (!perms?.has(PermissionFlagsBits.EmbedLinks)) errors.push('A Kaori precisa de Inserir Links em #divisões.');
             }
 
             if (errors.length) {
                 return interaction.reply({
-                    content: `Não foi possível ativar:\n${errors.map((e) => `• ${e}`).join('\n')}`,
+                    content: `Não foi possível ativar o recrutamento das divisões:\n${errors.map((error) => `• ${error}`).join('\n')}`,
                     ephemeral: true
                 });
             }
@@ -410,7 +422,9 @@ export async function executeAlliedDivisions(interaction) {
 
         await updateDivisionTicketConfig(guildId, { enabled });
         return interaction.reply({
-            content: enabled ? 'Candidaturas para divisões **abertas**.' : 'Candidaturas para divisões **fechadas**. Atendimentos abertos continuam funcionando.',
+            content: enabled
+                ? 'Recrutamento das divisões **aberto**. Cada botão enviará o formulário para a fila da divisão e somente seus líderes/vice-líderes poderão decidir.'
+                : 'Recrutamento das divisões **fechado**. Candidaturas já enviadas continuam registradas.',
             ephemeral: true
         });
     }
