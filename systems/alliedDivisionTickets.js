@@ -26,17 +26,25 @@ export const DEFAULT_DIVISION_QUESTIONS = Object.freeze([
     { id: 'motivation', label: 'Por que deseja entrar nesta divisão?', placeholder: 'O que espera contribuir e aprender?', style: 'paragraph', required: true, max_length: 700 }
 ]);
 
+export const DEFAULT_DIVISION_DESCRIPTIONS = Object.freeze({
+    chuva: 'A Divisão da Chuva é uma frente voltada aos membros que atuam com estratégia, precisão e controle, priorizando decisões calculadas e execução disciplinada. É a divisão para quem prefere entender o cenário antes de agir e transformar situações caóticas em algo previsível.\n\n• Foco em estratégia e precisão;\n• Presença marcada por disciplina e paciência;\n• Ideal para membros que preferem resultado ao alarde.\n\nSeu objetivo é reunir aqueles que trabalham melhor sob pressão sem perder o controle, mantendo uma atuação constante dentro da estrutura da Allied.',
+    sangue: 'A Divisão do Sangue representa a presença ofensiva da Allied, sendo voltada aos membros que se destacam por iniciativa, intensidade e capacidade de impor ritmo. É uma frente para quem prefere agir, pressionar e transformar confronto em oportunidade.\n\n• Foco em impacto e iniciativa;\n• Voltada a membros de postura agressiva e determinada;\n• Presença marcada por intensidade e domínio.\n\nSeu objetivo é concentrar membros que não esperam o cenário mudar por conta própria, mas procuram criar o momento e conduzir a situação em seu favor.',
+    abismo: 'A Divisão do Abismo é uma frente dedicada aos membros que valorizam informação, observação e controle do que acontece por trás das decisões visíveis. Sua força está menos na exposição e mais na capacidade de compreender o cenário antes que os outros percebam o movimento.\n\n• Foco em profundidade e leitura de cenário;\n• Valorização de informação, timing e paciência;\n• Perfil mais reservado e estratégico.\n\nSeu objetivo é reunir aqueles que preferem trabalhar nas camadas menos evidentes da estrutura, influenciando decisões por meio de análise, controle e conhecimento.',
+    eclipse: 'A Divisão do Eclipse reúne os membros que conseguem transitar entre diferentes formas de atuação, adaptando sua postura conforme a situação exige. Sua identidade está na dualidade: saber quando avançar, quando recuar e quando mudar completamente a abordagem.\n\n• Foco em adaptação e versatilidade;\n• Equilíbrio entre pressão e contenção;\n• Compatível com diferentes estilos de atuação.\n\nSeu objetivo é reunir membros capazes de lidar com situações imprevisíveis sem ficar presos a uma única maneira de agir, encontrando equilíbrio entre forças opostas dentro da estrutura da Allied.'
+});
+
 export const DIVISION_TICKET_DEFAULTS = Object.freeze({
     enabled: false,
     panel_channel_id: null,
     panel_message_id: null,
+    submission_channel_id: null,
     ticket_category_id: null,
     log_channel_id: null,
     member_role_id: '1524393369835671663',
     staff_role_ids: [],
-    panel_title: 'ALLIED | INGRESSO NAS DIVISÕES',
-    panel_description: 'Cada divisão tem seu próprio propósito, responsabilidades e estilo de atuação.\n\nEscolha abaixo a divisão que combina com seu perfil e preencha a candidatura. A equipe responsável fará a análise antes de conceder qualquer cargo.',
-    panel_content: '✦ ALLIED · DIVISION ADMISSIONS',
+    panel_title: 'ALLIED | DIVISÕES',
+    panel_description: 'Cada divisão possui uma identidade, um propósito e uma forma própria de contribuir para a Allied. Conheça cada uma e escolha onde deseja construir sua trajetória.',
+    panel_content: '',
     panel_color: '#8B1A1A',
     panel_thumbnail_url: null,
     panel_image_url: null,
@@ -109,9 +117,16 @@ function normalizeDivision(row) {
     if (typeof questions === 'string') {
         try { questions = JSON.parse(questions); } catch { questions = DEFAULT_DIVISION_QUESTIONS; }
     }
+    const divisionKey = String(row.division_key || '').toLowerCase();
+    const description = String(row.description || DEFAULT_DIVISION_DESCRIPTIONS[divisionKey] || `Conheça a ${row.name} e descubra como contribuir para a Allied.`);
     return {
         ...row,
+        description: cleanText(description, 1024),
+        button_label: cleanText(row.button_label, 80, `Entrar em ${row.name}`) || `Entrar em ${row.name}`,
+        button_style: ['Primary', 'Secondary', 'Success', 'Danger'].includes(row.button_style) ? row.button_style : 'Primary',
         reviewer_role_ids: Array.isArray(row.reviewer_role_ids) ? row.reviewer_role_ids : [],
+        leader_role_ids: Array.isArray(row.leader_role_ids) ? row.leader_role_ids : [],
+        vice_role_ids: Array.isArray(row.vice_role_ids) ? row.vice_role_ids : [],
         questions: validateDivisionQuestions(Array.isArray(questions) && questions.length ? questions : DEFAULT_DIVISION_QUESTIONS)
     };
 }
@@ -123,6 +138,7 @@ export async function ensureDivisionTicketSchema() {
             enabled BOOLEAN NOT NULL DEFAULT FALSE,
             panel_channel_id TEXT,
             panel_message_id TEXT,
+            submission_channel_id TEXT,
             ticket_category_id TEXT,
             log_channel_id TEXT,
             member_role_id TEXT,
@@ -144,6 +160,12 @@ export async function ensureDivisionTicketSchema() {
             role_id TEXT NOT NULL,
             emoji TEXT,
             reviewer_role_ids TEXT[] NOT NULL DEFAULT '{}',
+            description TEXT NOT NULL DEFAULT '',
+            button_label TEXT NOT NULL DEFAULT '',
+            button_style TEXT NOT NULL DEFAULT 'Primary',
+            submission_channel_id TEXT,
+            leader_role_ids TEXT[] NOT NULL DEFAULT '{}',
+            vice_role_ids TEXT[] NOT NULL DEFAULT '{}',
             enabled BOOLEAN NOT NULL DEFAULT TRUE,
             questions JSONB NOT NULL DEFAULT '[]'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -152,6 +174,12 @@ export async function ensureDivisionTicketSchema() {
         );
 
         ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS reviewer_role_ids TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS button_label TEXT NOT NULL DEFAULT '';
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS button_style TEXT NOT NULL DEFAULT 'Primary';
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS submission_channel_id TEXT;
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS leader_role_ids TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS vice_role_ids TEXT[] NOT NULL DEFAULT '{}';
 
         CREATE TABLE IF NOT EXISTS allied_division_requests (
             id BIGSERIAL PRIMARY KEY,
@@ -249,7 +277,11 @@ export async function getAlliedDivision(guildId, key) {
     return normalizeDivision(result.rows[0]);
 }
 
-export async function upsertAlliedDivision(guildId, { key, name, roleId, emoji = null, reviewerRoleIds = [], questions = DEFAULT_DIVISION_QUESTIONS }) {
+export async function upsertAlliedDivision(guildId, {
+    key, name, roleId, emoji = null, reviewerRoleIds = [],
+    description = null, buttonLabel = null, buttonStyle = 'Primary',
+    submissionChannelId = null, questions = DEFAULT_DIVISION_QUESTIONS
+}) {
     const divisionKey = slug(key);
     const divisionName = cleanText(name, 80);
     if (!divisionKey || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(divisionKey)) {
@@ -257,17 +289,77 @@ export async function upsertAlliedDivision(guildId, { key, name, roleId, emoji =
     }
     if (!divisionName) throw new Error('O nome da divisão é obrigatório.');
     if (!/^\d{17,20}$/.test(String(roleId || ''))) throw new Error('Selecione um cargo válido para a divisão.');
+    if (submissionChannelId && !/^\d{17,20}$/.test(String(submissionChannelId))) throw new Error('Canal de envio inválido.');
     const normalizedQuestions = validateDivisionQuestions(questions);
+    const defaultDescription = DEFAULT_DIVISION_DESCRIPTIONS[divisionKey] || `Conheça a ${divisionName} e descubra como contribuir para a Allied.`;
+    const finalDescription = cleanText(description ?? defaultDescription, 1024) || defaultDescription;
+    const finalButtonLabel = cleanText(buttonLabel ?? `Entrar em ${divisionName}`, 80) || `Entrar em ${divisionName}`;
+    const finalButtonStyle = ['Primary', 'Secondary', 'Success', 'Danger'].includes(buttonStyle) ? buttonStyle : 'Primary';
     const result = await pool.query(
-        `INSERT INTO allied_divisions (guild_id, division_key, name, role_id, emoji, reviewer_role_ids, enabled, questions)
-         VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7::jsonb)
+        `INSERT INTO allied_divisions
+            (guild_id, division_key, name, role_id, emoji, reviewer_role_ids, enabled, questions,
+             description, button_label, button_style, submission_channel_id)
+         VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7::jsonb,$8,$9,$10,$11)
          ON CONFLICT (guild_id, division_key) DO UPDATE SET
-            name = EXCLUDED.name, role_id = EXCLUDED.role_id, emoji = EXCLUDED.emoji,
+            name = EXCLUDED.name,
+            role_id = EXCLUDED.role_id,
+            emoji = COALESCE(EXCLUDED.emoji, allied_divisions.emoji),
             reviewer_role_ids = CASE WHEN cardinality(EXCLUDED.reviewer_role_ids) > 0 THEN EXCLUDED.reviewer_role_ids ELSE allied_divisions.reviewer_role_ids END,
-            enabled = TRUE, questions = EXCLUDED.questions, updated_at = NOW()
+            enabled = TRUE,
+            questions = EXCLUDED.questions,
+            description = CASE WHEN $8 IS NOT NULL THEN EXCLUDED.description ELSE COALESCE(NULLIF(allied_divisions.description, ''), EXCLUDED.description) END,
+            button_label = CASE WHEN $9 IS NOT NULL THEN EXCLUDED.button_label ELSE COALESCE(NULLIF(allied_divisions.button_label, ''), EXCLUDED.button_label) END,
+            button_style = CASE WHEN $10 IS NOT NULL THEN EXCLUDED.button_style ELSE allied_divisions.button_style END,
+            submission_channel_id = COALESCE(EXCLUDED.submission_channel_id, allied_divisions.submission_channel_id),
+            updated_at = NOW()
          RETURNING *`,
-        [guildId, divisionKey, divisionName, roleId, emoji ? String(emoji).slice(0, 64) : null, [...new Set(reviewerRoleIds)], JSON.stringify(normalizedQuestions)]
+        [guildId, divisionKey, divisionName, roleId, emoji ? String(emoji).slice(0, 64) : null,
+            [...new Set(reviewerRoleIds)], JSON.stringify(normalizedQuestions), finalDescription,
+            finalButtonLabel, finalButtonStyle, submissionChannelId]
     );
+    return normalizeDivision(result.rows[0]);
+}
+
+export async function updateAlliedDivisionLeadership(guildId, key, kind, roleId, action) {
+    const divisionKey = slug(key);
+    const column = kind === 'leader' ? 'leader_role_ids' : kind === 'vice' ? 'vice_role_ids' : null;
+    if (!column) throw new Error('Tipo de liderança inválido.');
+    if (!/^\d{17,20}$/.test(String(roleId || ''))) throw new Error('Selecione um cargo válido.');
+    if (!['add', 'remove'].includes(action)) throw new Error('Ação inválida.');
+    const result = await pool.query(
+        `UPDATE allied_divisions
+         SET ${column} = CASE
+             WHEN $3 = 'add' THEN COALESCE((SELECT array_agg(DISTINCT role_id) FROM unnest(COALESCE(${column}, '{}'::text[]) || ARRAY[$4]::text[]) AS role_id), '{}'::text[])
+             ELSE array_remove(COALESCE(${column}, '{}'::text[]), $4)
+         END,
+         updated_at = NOW()
+         WHERE guild_id = $1 AND division_key = $2
+         RETURNING *`,
+        [guildId, divisionKey, action, roleId]
+    );
+    if (!result.rows[0]) throw new Error('Divisão não encontrada. Confira a chave informada.');
+    return normalizeDivision(result.rows[0]);
+}
+
+export async function updateAlliedDivisionPresentation(guildId, key, patch) {
+    const allowed = new Set(['description', 'button_label', 'button_style', 'submission_channel_id']);
+    const entries = Object.entries(patch).filter(([field]) => allowed.has(field));
+    if (!entries.length) throw new Error('Nenhuma configuração de apresentação foi informada.');
+    const sets = [];
+    const values = [guildId, slug(key)];
+    let index = 3;
+    for (const [field, value] of entries) {
+        sets.push(`${field} = ${index}`);
+        values.push(value);
+        index += 1;
+    }
+    sets.push('updated_at = NOW()');
+    const result = await pool.query(
+        `UPDATE allied_divisions SET ${sets.join(', ')}
+         WHERE guild_id = $1 AND division_key = $2 RETURNING *`,
+        values
+    );
+    if (!result.rows[0]) throw new Error('Divisão não encontrada.');
     return normalizeDivision(result.rows[0]);
 }
 
@@ -319,6 +411,9 @@ function buildDivisionModal(division) {
 }
 
 export function buildDivisionPanelPayload(config, divisions) {
+    if (!Array.isArray(divisions) || divisions.length > 25) {
+        throw new Error('O painel aceita no máximo 25 divisões ativas, uma por botão.');
+    }
     const embed = new EmbedBuilder()
         .setColor(Number.isFinite(Number.parseInt(String(config.panel_color || '#8B1A1A').replace('#', ''), 16)) ? Number.parseInt(String(config.panel_color || '#8B1A1A').replace('#', ''), 16) : CARMINE)
         .setTitle(cleanText(config.panel_title, 256, DIVISION_TICKET_DEFAULTS.panel_title));
@@ -328,33 +423,42 @@ export function buildDivisionPanelPayload(config, divisions) {
     if (thumb) embed.setThumbnail(thumb);
     if (image) embed.setImage(image);
     if (config.panel_footer_text) embed.setFooter({ text: cleanText(config.panel_footer_text, 2048) });
+
     if (divisions.length) {
-        embed.addFields({
-            name: 'DIVISÕES DISPONÍVEIS',
-            value: divisions.slice(0, 25).map((division) => `${division.emoji || '✦'} **${division.name}**`).join('\n'),
+        embed.addFields(divisions.map((division) => ({
+            name: `${division.emoji || '✦'} ${cleanText(division.name, 90).toUpperCase()}`.slice(0, 256),
+            value: truncate(division.description || DEFAULT_DIVISION_DESCRIPTIONS[division.division_key] || 'Divisão da Allied.', 1024),
             inline: false
-        });
+        })));
     } else {
         embed.addFields({ name: 'INSCRIÇÕES', value: 'Nenhuma divisão está aceitando candidaturas no momento.' });
     }
-    const payload = {
-        content: cleanText(config.panel_content, 2000) || undefined,
-        embeds: [embed],
-        allowedMentions: { parse: [] }
-    };
+
+    const embedJson = embed.toJSON();
+    const totalCharacters = [
+        embedJson.title || '', embedJson.description || '', embedJson.author?.name || '',
+        embedJson.footer?.text || '',
+        ...(embedJson.fields || []).flatMap((field) => [field.name, field.value])
+    ].join('').length;
+    if (totalCharacters > 6000) throw new Error('A embed das divisões ultrapassa o limite de 6000 caracteres do Discord.');
+
+    const payload = { embeds: [embed], allowedMentions: { parse: [] } };
     if (divisions.length) {
-        const menu = new StringSelectMenuBuilder()
-            .setCustomId('division-ticket:select')
-            .setPlaceholder('Escolha a divisão que deseja integrar')
-            .setMinValues(1)
-            .setMaxValues(1)
-            .addOptions(divisions.slice(0, 25).map((division) => ({
-                label: division.name.slice(0, 100),
-                value: division.division_key,
-                description: `Solicitar ingresso em ${division.name}`.slice(0, 100),
-                ...(division.emoji ? { emoji: division.emoji } : {})
-            })));
-        payload.components = [new ActionRowBuilder().addComponents(menu)];
+        const rows = [];
+        for (let index = 0; index < divisions.length; index += 5) {
+            const row = new ActionRowBuilder();
+            for (const division of divisions.slice(index, index + 5)) {
+                const style = ButtonStyle[division.button_style] || ButtonStyle.Primary;
+                const button = new ButtonBuilder()
+                    .setCustomId(`division-ticket:apply:${division.division_key}`)
+                    .setLabel(cleanText(division.button_label, 80) || `Entrar em ${division.name}`)
+                    .setStyle(style);
+                if (division.emoji) button.setEmoji(division.emoji);
+                row.addComponents(button);
+            }
+            rows.push(row);
+        }
+        payload.components = rows;
     }
     return payload;
 }
@@ -366,7 +470,7 @@ export async function publishDivisionPanel(guild, config = null) {
     const channel = await guild.channels.fetch(current.panel_channel_id).catch(() => null);
     if (!channel?.isTextBased() || !channel.send) throw new Error('Canal do painel inválido ou inacessível.');
     const divisions = await listAlliedDivisions(guild.id, { enabledOnly: true });
-    if (divisions.length > 25) throw new Error('O Discord permite no máximo 25 opções no seletor de divisões.');
+    if (divisions.length > 25) throw new Error('O Discord permite no máximo 25 botões de divisão.');
     const payload = buildDivisionPanelPayload(current, divisions);
     let message = current.panel_message_id ? await channel.messages.fetch(current.panel_message_id).catch(() => null) : null;
     if (message) await message.edit(payload);
