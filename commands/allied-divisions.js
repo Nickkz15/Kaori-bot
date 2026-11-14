@@ -144,44 +144,26 @@ export async function executeAlliedDivisions(interaction) {
     if (sub === 'configurar') {
         const patch = {};
         const panel = interaction.options.getChannel('painel');
-        const category = interaction.options.getChannel('categoria');
+        const submission = interaction.options.getChannel('canal_entrada');
         const logs = interaction.options.getChannel('logs');
         const memberRole = interaction.options.getRole('cargo_membro');
-        const staffRole = interaction.options.getRole('cargo_equipe');
 
         if (panel) patch.panel_channel_id = panel.id;
-        if (category) patch.ticket_category_id = category.id;
+        if (submission) patch.submission_channel_id = submission.id;
         if (logs) patch.log_channel_id = logs.id;
-
         if (memberRole) {
             if (memberRole.id === interaction.guild.roles.everyone.id || memberRole.managed) {
-                return interaction.reply({
-                    content: 'Escolha um cargo de membro válido, não gerenciado e diferente de @everyone.',
-                    ephemeral: true
-                });
+                return interaction.reply({ content: 'Escolha um cargo de membro válido, não gerenciado e diferente de @everyone.', ephemeral: true });
             }
             patch.member_role_id = memberRole.id;
         }
-
-        if (staffRole) {
-            if (staffRole.id === interaction.guild.roles.everyone.id || staffRole.managed) {
-                return interaction.reply({
-                    content: 'Escolha um cargo de equipe válido.',
-                    ephemeral: true
-                });
-            }
-
-            const current = await getDivisionTicketConfig(guildId).catch(() => ({ staff_role_ids: [] }));
-            patch.staff_role_ids = [...new Set([...(current.staff_role_ids ?? []), staffRole.id])];
-        }
-
         if (!Object.keys(patch).length) {
             return interaction.reply({ content: 'Informe ao menos uma configuração.', ephemeral: true });
         }
 
         const config = await updateDivisionTicketConfig(guildId, patch);
         return interaction.reply({
-            content: `Configuração salva.\nPainel: ${config.panel_channel_id ? `<#${config.panel_channel_id}>` : 'não definido'}\nCategoria: ${config.ticket_category_id ? `<#${config.ticket_category_id}>` : 'não definida'}\nCargo de membro exigido: ${config.member_role_id ? `<@&${config.member_role_id}>` : 'não definido'}\nEquipe: ${Array.isArray(config.staff_role_ids) && config.staff_role_ids.length ? config.staff_role_ids.map((id) => `<@&${id}>`).join(', ') : 'nenhum cargo configurado'}`,
+            content: `Configuração salva.\nPainel: ${config.panel_channel_id ? `<#${config.panel_channel_id}>` : 'não definido'}\nCanal de entrada padrão: ${config.submission_channel_id ? `<#${config.submission_channel_id}>` : 'não definido'}\nCanal de logs: ${config.log_channel_id ? `<#${config.log_channel_id}>` : 'não definido'}\nCargo de membro exigido: ${config.member_role_id ? `<@&${config.member_role_id}>` : 'não definido'}`,
             ephemeral: true,
             allowedMentions: { parse: [] }
         });
@@ -191,52 +173,85 @@ export async function executeAlliedDivisions(interaction) {
         const key = interaction.options.getString('chave', true).trim().toLowerCase();
         const name = interaction.options.getString('nome', true);
         const role = interaction.options.getRole('cargo', true);
-        const reviewerRole = interaction.options.getRole('cargo_revisor');
         const emoji = interaction.options.getString('emoji');
+        const description = interaction.options.getString('descricao');
+        const buttonLabel = interaction.options.getString('botao');
+        const buttonStyle = interaction.options.getString('estilo');
+        const submission = interaction.options.getChannel('canal_destino');
 
         if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(key)) {
-            return interaction.reply({
-                content: 'A chave deve conter somente letras minúsculas, números, hífen ou _. Exemplo: `chuva`.',
-                ephemeral: true
-            });
+            return interaction.reply({ content: 'A chave deve conter letras minúsculas, números, hífen ou _. Exemplo: `chuva`.', ephemeral: true });
         }
-
         if (role.id === interaction.guild.roles.everyone.id || role.managed) {
-            return interaction.reply({
-                content: 'Escolha um cargo normal, não gerenciado e diferente de @everyone.',
-                ephemeral: true
-            });
+            return interaction.reply({ content: 'Escolha um cargo normal, não gerenciado e diferente de @everyone.', ephemeral: true });
         }
-
         const botMember = interaction.guild.members.me || await interaction.guild.members.fetch(interaction.client.user.id).catch(() => null);
         if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles) || botMember.roles.highest.position <= role.position) {
-            return interaction.reply({
-                content: 'A Kaori precisa de Gerenciar Cargos e seu cargo mais alto deve ficar acima do cargo da divisão.',
-                ephemeral: true
-            });
-        }
-
-        if (reviewerRole && (reviewerRole.id === interaction.guild.roles.everyone.id || reviewerRole.managed)) {
-            return interaction.reply({
-                content: 'O cargo revisor precisa ser um cargo normal, diferente de @everyone.',
-                ephemeral: true
-            });
+            return interaction.reply({ content: 'A Kaori precisa de Gerenciar Cargos e seu cargo mais alto deve ficar acima do cargo da divisão.', ephemeral: true });
         }
 
         try {
-            const existing = await getAlliedDivision(guildId, key);
-            const reviewerRoleIds = reviewerRole ? [reviewerRole.id] : (existing?.reviewer_role_ids || []);
-            const division = await upsertAlliedDivision(guildId, { key, name, roleId: role.id, emoji, reviewerRoleIds });
+            const division = await upsertAlliedDivision(guildId, {
+                key, name, roleId: role.id, emoji, description, buttonLabel, buttonStyle,
+                submissionChannelId: submission?.id || null
+            });
             return interaction.reply({
-                content: `Divisão **${division.name}** cadastrada. Cargo de aprovação: ${role}. Formulário padrão criado; personalize com /allied-divisions formulario.`,
+                content: `Divisão **${division.name}** cadastrada. O botão usará o formulário individual desta divisão e enviará a candidatura para ${division.submission_channel_id ? `<#${division.submission_channel_id}>` : 'o canal de entrada padrão'}.`,
                 ephemeral: true,
                 allowedMentions: { parse: [] }
             });
         } catch (error) {
+            return interaction.reply({ content: `Não consegui cadastrar a divisão: ${error.message}`, ephemeral: true });
+        }
+    }
+
+    if (sub === 'editar') {
+        const key = interaction.options.getString('chave', true);
+        const patch = {};
+        const description = interaction.options.getString('descricao');
+        const buttonLabel = interaction.options.getString('botao');
+        const buttonStyle = interaction.options.getString('estilo');
+        const emoji = interaction.options.getString('emoji');
+        const destination = interaction.options.getChannel('canal_destino');
+        const useDefaultChannel = interaction.options.getBoolean('usar_canal_padrao');
+
+        if (description !== null) patch.description = description === '-' ? '' : description;
+        if (buttonLabel !== null) patch.button_label = buttonLabel;
+        if (buttonStyle !== null) patch.button_style = buttonStyle;
+        if (emoji !== null) patch.emoji = emoji === '-' ? null : emoji;
+        if (destination) patch.submission_channel_id = destination.id;
+        if (useDefaultChannel === true) patch.submission_channel_id = null;
+
+        try {
+            const division = await updateAlliedDivisionPresentation(guildId, key, patch);
             return interaction.reply({
-                content: `Não consegui cadastrar a divisão: ${error.message}`,
+                content: `Configuração de **${division.name}** atualizada. Publique novamente o painel para aplicar as mudanças.`,
                 ephemeral: true
             });
+        } catch (error) {
+            return interaction.reply({ content: `Não consegui editar a divisão: ${error.message}`, ephemeral: true });
+        }
+    }
+
+    if (['adicionar-lider', 'remover-lider', 'adicionar-vice', 'remover-vice'].includes(sub)) {
+        const key = interaction.options.getString('chave', true);
+        const role = interaction.options.getRole('cargo', true);
+        if (role.id === interaction.guild.roles.everyone.id || role.managed) {
+            return interaction.reply({ content: 'Escolha um cargo normal, não gerenciado e diferente de @everyone.', ephemeral: true });
+        }
+        const kind = sub.endsWith('-lider') ? 'leader' : 'vice';
+        const action = sub.startsWith('adicionar-') ? 'add' : 'remove';
+        try {
+            const division = await updateAlliedDivisionLeadership(guildId, key, kind, role.id, action);
+            const roleIds = kind === 'leader' ? division.leader_role_ids : division.vice_role_ids;
+            const title = kind === 'leader' ? 'Líderes' : 'Vice-líderes';
+            return interaction.reply({
+                content: `Cargo ${role} ${action === 'add' ? 'adicionado à lista de' : 'removido da lista de'} **${title}** da divisão **${division.name}**. Cargos autorizados: ${roleIds.length ? roleIds.map((id) => `<@&${id}>`).join(', ') : 'nenhum'}.`,
+                ephemeral: true,
+                allowedMentions: { parse: [] }
+            });
+        } catch (error) {
+            return interaction.reply({ content: error.message, ephemeral: true });
         }
     }
 
