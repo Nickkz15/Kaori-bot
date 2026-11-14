@@ -479,105 +479,110 @@ export async function publishDivisionPanel(guild, config = null) {
     return { channel, message, divisions };
 }
 
-function canReview(member, config, division = null) {
-    if (member.permissions?.has(PermissionFlagsBits.Administrator)) return true;
-    const allowedRoles = [...new Set([...(config.staff_role_ids || []), ...(division?.reviewer_role_ids || [])])];
+export function canReviewDivision(member, request) {
+    if (!member || !request) return false;
+    const allowedRoles = Array.isArray(request.reviewer_role_ids) ? request.reviewer_role_ids : [];
     return allowedRoles.some((roleId) => member.roles?.cache?.has(roleId));
 }
 
-
-function buildDivisionCloseRow(requestId) {
-    return new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(`division-ticket:close:${requestId}`)
-            .setLabel('Encerrar atendimento')
-            .setStyle(ButtonStyle.Secondary)
-    );
-}
-
-function buildDivisionRequestCard(request, division, answers) {
+export function buildDivisionRequestCard(request, division, answers) {
     const embed = new EmbedBuilder()
         .setColor(CARMINE)
-        .setAuthor({ name: 'ALLIED · DIVISION ADMISSIONS' })
+        .setAuthor({ name: 'ALLIED · DIVISION RECRUITMENT' })
         .setTitle(`${division.name} · Candidatura #${request.id}`)
-        .setDescription(`**Candidato:** <@${request.user_id}>\n**Divisão:** ${division.emoji || '✦'} ${division.name}\n**Situação:** Aguardando análise da equipe\n\nA concessão do cargo depende da aprovação de um responsável.`)
+        .setDescription(`**Candidato:** <@${request.user_id}>\n**Divisão:** ${division.emoji || '✦'} ${division.name}\n**Cargo após aprovação:** <@&${request.division_role_id}>\n**Situação:** Aguardando análise dos líderes e vice-líderes\n\nSomente a liderança cadastrada para esta divisão pode aceitar ou recusar a candidatura.`)
         .setTimestamp(new Date(request.created_at || Date.now()))
-        .setFooter({ text: 'ALLIED · Processo de ingresso em divisão' });
+        .setFooter({ text: 'ALLIED · Recrutamento das divisões' });
     for (const question of division.questions) {
-        embed.addFields({ name: truncate(question.label, 256), value: truncate(answers[question.id], 1024), inline: false });
+        embed.addFields({ name: truncate(question.label, 256), value: truncate(answers[question.id], 800), inline: false });
     }
     const actions = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`division-ticket:approve:${request.id}`).setLabel('Aprovar e atribuir cargo').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`division-ticket:reject:${request.id}`).setLabel('Recusar').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId(`division-ticket:info:${request.id}`).setLabel('Solicitar esclarecimento').setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId(`division-ticket:approve:${request.id}`).setLabel('Aceitar candidatura').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`division-ticket:reject:${request.id}`).setLabel('Recusar candidatura').setStyle(ButtonStyle.Danger)
     );
-    const close = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`division-ticket:close:${request.id}`).setLabel('Encerrar atendimento').setStyle(ButtonStyle.Secondary)
-    );
-    return { embeds: [embed], components: [actions, close] };
+    return { embeds: [embed], components: [actions] };
 }
 
-async function createDivisionTicket(interaction, member, division, answers, config) {
+async function createDivisionApplication(interaction, member, division, answers, config) {
+    const guild = interaction.guild;
+    const submissionChannelId = division.submission_channel_id || config.submission_channel_id;
+    const submissionChannel = submissionChannelId
+        ? await guild.channels.fetch(submissionChannelId).catch(() => null)
+        : null;
+    if (!submissionChannel?.isTextBased() || !submissionChannel.send) {
+        throw new Error(`Configure um canal de texto de envio para a divisão ${division.name} (canal_entrada global ou canal_destino da divisão).`);
+    }
+
+    const leaders = [...new Set([...(division.leader_role_ids || []), ...(division.vice_role_ids || [])])];
+    if (!leaders.length) throw new Error(`A divisão ${division.name} ainda não tem líderes ou vice-líderes cadastrados.`);
+
+    const botMember = guild.members.me || await guild.members.fetch(interaction.client.user.id).catch(() => null);
+    if (!botMember) throw new Error('Não consegui localizar a Kaori no servidor.');
+    const botPermissions = submissionChannel.permissionsFor(botMember);
+    const missingPermissions = [];
+    if (!botPermissions?.has(PermissionFlagsBits.ViewChannel)) missingPermissions.push('Ver Canal');
+    if (!botPermissions?.has(PermissionFlagsBits.SendMessages)) missingPermissions.push('Enviar Mensagens');
+    if (!botPermissions?.has(PermissionFlagsBits.EmbedLinks)) missingPermissions.push('Inserir Links');
+    if (missingPermissions.length) {
+        throw new Error(`A Kaori precisa de ${missingPermissions.join(', ')} em <#${submissionChannel.id}>.`);
+    }
+
+    const validLeaderIds = [];
+    for (const roleId of leaders) {
+        const role = await guild.roles.fetch(roleId).catch(() => null);
+        if (!role || role.id === guild.roles.everyone.id || role.managed) continue;
+        const rolePermissions = submissionChannel.permissionsFor(role);
+        if (rolePermissions?.has(PermissionFlagsBits.ViewChannel) && rolePermissions?.has(PermissionFlagsBits.ReadMessageHistory)) {
+            validLeaderIds.push(role.id);
+        }
+    }
+    if (!validLeaderIds.length) {
+        throw new Error(`Nenhum líder ou vice-líder cadastrado consegue ver e ler <#${submissionChannel.id}>. Confira as permissões do canal.`);
+    }
+
     const created = await pool.query(
         `INSERT INTO allied_division_requests
             (guild_id, user_id, division_key, division_name, division_role_id, reviewer_role_ids, display_name, answers, status)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'creating') RETURNING *`,
-        [interaction.guildId, interaction.user.id, division.division_key, division.name, division.role_id,
-            division.reviewer_role_ids || [], member.displayName || interaction.user.globalName || interaction.user.username, JSON.stringify(answers)]
+        [guild.id, interaction.user.id, division.division_key, division.name, division.role_id,
+            validLeaderIds, member.displayName || interaction.user.globalName || interaction.user.username, JSON.stringify(answers)]
     );
     const request = created.rows[0];
-    let ticket = null;
+    let reviewMessage = null;
     try {
-        const guild = interaction.guild;
-        const overwrites = [
-            { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] },
-            { id: interaction.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] }
-        ];
-        const staffIds = [];
-        for (const roleId of [...new Set([...(config.staff_role_ids || []), ...(division.reviewer_role_ids || [])])]) {
-            if (!roleId || roleId === guild.roles.everyone.id) continue;
-            const role = await guild.roles.fetch(roleId).catch(() => null);
-            if (!role) continue;
-            staffIds.push(role.id);
-            overwrites.push({ id: role.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages] });
-        }
-        let parent;
-        if (config.ticket_category_id) {
-            parent = await guild.channels.fetch(config.ticket_category_id).catch(() => null);
-            if (!parent || parent.type !== ChannelType.GuildCategory) throw new Error('A categoria de tíquetes configurada é inválida.');
-        }
-        ticket = await guild.channels.create({
-            name: `div-${slug(division.division_key)}-${request.id}-${slug(member.displayName || interaction.user.username)}`.slice(0, 95),
-            type: ChannelType.GuildText,
-            parent: parent?.id,
-            topic: `ALLIED_DIVISION_REQUEST:${request.id}:${interaction.user.id}:${division.division_key}`,
-            permissionOverwrites: overwrites,
-            reason: `Candidatura para ${division.name} por ${interaction.user.tag}`
-        });
-        const card = buildDivisionRequestCard(request, division, answers);
-        const message = await ticket.send({
-            content: [`<@${interaction.user.id}>`, ...staffIds.map((id) => `<@&${id}>`)].join(' '),
+        // Save channel and open status before publishing the buttons, preventing a fast-click race.
+        await pool.query(
+            `UPDATE allied_division_requests
+             SET status='open', channel_id=$2, updated_at=NOW()
+             WHERE id=$1`,
+            [request.id, submissionChannel.id]
+        );
+
+        const card = buildDivisionRequestCard({ ...request, reviewer_role_ids: validLeaderIds }, division, answers);
+        const leadershipMentions = validLeaderIds.map((id) => `<@&${id}>`).join(' ');
+        reviewMessage = await submissionChannel.send({
+            content: `**Nova candidatura para ${division.name}** · ${leadershipMentions}`,
             ...card,
-            allowedMentions: { users: [interaction.user.id], roles: staffIds, parse: [] }
+            allowedMentions: { users: [], roles: validLeaderIds, parse: [] }
         });
         await pool.query(
-            `UPDATE allied_division_requests SET status='open', channel_id=$2, message_id=$3, updated_at=NOW() WHERE id=$1`,
-            [request.id, ticket.id, message.id]
+            `UPDATE allied_division_requests SET message_id=$2, updated_at=NOW() WHERE id=$1`,
+            [request.id, reviewMessage.id]
         );
+
         if (config.log_channel_id) {
             const log = await guild.channels.fetch(config.log_channel_id).catch(() => null);
             if (log?.isTextBased()) {
                 await log.send({
-                    content: `✦ Nova candidatura para **${division.name}** · #${request.id} · <@${interaction.user.id}> · ${ticket}`,
+                    content: `✦ Nova candidatura para **${division.name}** · #${request.id} · <@${interaction.user.id}> · <#${submissionChannel.id}>`,
                     allowedMentions: { parse: [] }
                 }).catch(() => {});
             }
         }
-        return ticket;
+        return { channel: submissionChannel, message: reviewMessage };
     } catch (error) {
         await pool.query(`UPDATE allied_division_requests SET status='failed', updated_at=NOW() WHERE id=$1`, [request.id]).catch(() => {});
-        if (ticket) await ticket.delete('Falha ao finalizar candidatura de divisão').catch(() => {});
+        if (reviewMessage) await reviewMessage.delete('Falha ao registrar candidatura de divisão').catch(() => {});
         throw error;
     }
 }
