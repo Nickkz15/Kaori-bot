@@ -385,6 +385,10 @@ export async function executeAlliedDivisions(interaction) {
                     continue;
                 }
 
+                const publicPermissions = destination.permissionsFor(interaction.guild.roles.everyone);
+                if (publicPermissions?.has(PermissionFlagsBits.ViewChannel)) {
+                    errors.push(`O canal ${destination} precisa ser privado; negue Ver Canal para @everyone.`);
+                }
                 if (botMember) {
                     const botPermissions = destination.permissionsFor(botMember);
                     if (!botPermissions?.has(PermissionFlagsBits.ViewChannel)) errors.push(`A Kaori precisa de Ver Canal em ${destination}.`);
