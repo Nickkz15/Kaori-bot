@@ -84,7 +84,7 @@ test('division panel groups buttons into rows of five and enforces the Discord 2
             division_key: `div-${index + 1}`,
             name: `Divisão ${index + 1}`
         }))),
-        /máximo de 25/
+        /máximo 25/
     );
 });
 
