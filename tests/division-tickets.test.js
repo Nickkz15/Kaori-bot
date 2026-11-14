@@ -4,7 +4,8 @@ import {
     validateDivisionQuestions,
     buildDivisionPanelPayload,
     buildDivisionRequestCard,
-    canReviewDivision
+    canReviewDivision,
+    DEFAULT_DIVISION_DESCRIPTIONS
 } from '../systems/alliedDivisionTickets.js';
 
 const minimalDivision = {
@@ -86,6 +87,38 @@ test('division panel groups buttons into rows of five and enforces the Discord 2
         }))),
         /máximo 25/
     );
+});
+
+test('the four Allied divisions render their full supplied descriptions and individual buttons', () => {
+    const divisions = [
+        ['chuva', '1ª Chuva', '🌧️'],
+        ['sangue', '2ª Sangue', '🩸'],
+        ['abismo', '3ª Abismo', '🌑'],
+        ['eclipse', '4ª Eclipse', '🌘']
+    ].map(([division_key, name, emoji]) => ({
+        ...minimalDivision,
+        division_key,
+        name,
+        emoji,
+        description: DEFAULT_DIVISION_DESCRIPTIONS[division_key],
+        button_label: `Entrar em ${name}`
+    }));
+
+    const payload = buildDivisionPanelPayload({ panel_title: 'ALLIED | DIVISÕES' }, divisions);
+    const embed = payload.embeds[0].toJSON();
+    const buttons = payload.components.flatMap((row) => row.components.map((button) => button.toJSON()));
+
+    assert.equal(embed.fields.length, 4);
+    for (const [key] of [['chuva'], ['sangue'], ['abismo'], ['eclipse']]) {
+        assert.equal(embed.fields.find((field) => field.value === DEFAULT_DIVISION_DESCRIPTIONS[key])?.value, DEFAULT_DIVISION_DESCRIPTIONS[key]);
+    }
+    assert.deepEqual(buttons.map((button) => button.custom_id), [
+        'division-ticket:apply:chuva',
+        'division-ticket:apply:sangue',
+        'division-ticket:apply:abismo',
+        'division-ticket:apply:eclipse'
+    ]);
+    assert.equal(buttons.length, 4);
 });
 
 test('division panel remains renderable when there are no active divisions', () => {
