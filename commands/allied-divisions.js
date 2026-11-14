@@ -13,6 +13,8 @@ import {
     setAlliedDivisionQuestions,
     setAlliedDivisionEnabled,
     removeAlliedDivision,
+    updateAlliedDivisionLeadership,
+    updateAlliedDivisionPresentation,
     buildDivisionPanelPayload,
     publishDivisionPanel,
     validateDivisionQuestions
@@ -36,56 +38,97 @@ function parseUrl(value, label) {
 
 export const alliedDivisionsCommand = new SlashCommandBuilder()
     .setName('allied-divisions')
-    .setDescription('Gerencia candidaturas e tíquetes de ingresso nas divisões da Allied')
+    .setDescription('Gerencia as divisões, seus painéis e o recrutamento da Allied')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sc) => sc.setName('configurar')
-        .setDescription('Configura painel, categoria, logs e cargos responsáveis')
-        .addChannelOption((o) => o.setName('painel').setDescription('Canal do painel público').addChannelTypes(ChannelType.GuildText))
-        .addChannelOption((o) => o.setName('categoria').setDescription('Categoria dos tíquetes privados').addChannelTypes(ChannelType.GuildCategory))
+        .setDescription('Configura o painel público e o canal central de candidaturas')
+        .addChannelOption((o) => o.setName('painel').setDescription('Canal #divisões onde ficará a embed').addChannelTypes(ChannelType.GuildText))
+        .addChannelOption((o) => o.setName('canal_entrada').setDescription('Canal central #entrada-divisão para receber formulários').addChannelTypes(ChannelType.GuildText))
         .addChannelOption((o) => o.setName('logs').setDescription('Canal privado de registros').addChannelTypes(ChannelType.GuildText))
         .addRoleOption((o) => o.setName('cargo_membro').setDescription('Cargo exigido para solicitar ingresso em divisão'))
-        .addRoleOption((o) => o.setName('cargo_equipe').setDescription('Cargo autorizado a revisar candidaturas'))
     )
     .addSubcommand((sc) => sc.setName('adicionar')
-        .setDescription('Adiciona uma divisão ao seletor de candidaturas')
+        .setDescription('Cadastra uma divisão e cria seu botão de candidatura')
         .addStringOption((o) => o.setName('chave').setDescription('Identificador curto, ex.: chuva').setRequired(true).setMaxLength(32))
         .addStringOption((o) => o.setName('nome').setDescription('Nome exibido, ex.: 1ª Chuva').setRequired(true).setMaxLength(80))
         .addRoleOption((o) => o.setName('cargo').setDescription('Cargo concedido somente após aprovação').setRequired(true))
-        .addRoleOption((o) => o.setName('cargo_revisor').setDescription('Cargo adicional que revisará esta divisão'))
-        .addStringOption((o) => o.setName('emoji').setDescription('Emoji opcional para decorar o painel').setMaxLength(64))
+        .addStringOption((o) => o.setName('descricao').setDescription('Descrição completa exibida na embed').setMaxLength(1024))
+        .addStringOption((o) => o.setName('botao').setDescription('Texto do botão de candidatura').setMaxLength(80))
+        .addStringOption((o) => o.setName('estilo').setDescription('Cor/estilo do botão').addChoices(
+            { name: 'Vermelho', value: 'Danger' },
+            { name: 'Verde', value: 'Success' },
+            { name: 'Azul', value: 'Primary' },
+            { name: 'Cinza', value: 'Secondary' }
+        ))
+        .addStringOption((o) => o.setName('emoji').setDescription('Emoji opcional do botão e título').setMaxLength(64))
+        .addChannelOption((o) => o.setName('canal_destino').setDescription('Canal específico para receber esta divisão; vazio usa canal_entrada').addChannelTypes(ChannelType.GuildText))
+    )
+    .addSubcommand((sc) => sc.setName('editar')
+        .setDescription('Altera descrição, botão ou canal de envio de uma divisão')
+        .addStringOption((o) => o.setName('chave').setDescription('Identificador cadastrado').setRequired(true).setMaxLength(32))
+        .addStringOption((o) => o.setName('descricao').setDescription('Nova descrição completa').setMaxLength(1024))
+        .addStringOption((o) => o.setName('botao').setDescription('Novo texto do botão').setMaxLength(80))
+        .addStringOption((o) => o.setName('estilo').setDescription('Novo estilo do botão').addChoices(
+            { name: 'Vermelho', value: 'Danger' },
+            { name: 'Verde', value: 'Success' },
+            { name: 'Azul', value: 'Primary' },
+            { name: 'Cinza', value: 'Secondary' }
+        ))
+        .addStringOption((o) => o.setName('emoji').setDescription('Novo emoji do botão; hífen remove').setMaxLength(64))
+        .addChannelOption((o) => o.setName('canal_destino').setDescription('Canal específico desta divisão').addChannelTypes(ChannelType.GuildText))
+        .addBooleanOption((o) => o.setName('usar_canal_padrao').setDescription('Sim = volta a usar o canal_entrada global'))
+    )
+    .addSubcommand((sc) => sc.setName('adicionar-lider')
+        .setDescription('Autoriza um cargo de líder a aceitar ou recusar candidaturas desta divisão')
+        .addStringOption((o) => o.setName('chave').setDescription('Chave da divisão').setRequired(true).setMaxLength(32))
+        .addRoleOption((o) => o.setName('cargo').setDescription('Cargo do líder').setRequired(true))
+    )
+    .addSubcommand((sc) => sc.setName('remover-lider')
+        .setDescription('Remove um cargo da liderança desta divisão')
+        .addStringOption((o) => o.setName('chave').setDescription('Chave da divisão').setRequired(true).setMaxLength(32))
+        .addRoleOption((o) => o.setName('cargo').setDescription('Cargo do líder').setRequired(true))
+    )
+    .addSubcommand((sc) => sc.setName('adicionar-vice')
+        .setDescription('Autoriza um cargo de vice-líder a aceitar ou recusar candidaturas desta divisão')
+        .addStringOption((o) => o.setName('chave').setDescription('Chave da divisão').setRequired(true).setMaxLength(32))
+        .addRoleOption((o) => o.setName('cargo').setDescription('Cargo do vice-líder').setRequired(true))
+    )
+    .addSubcommand((sc) => sc.setName('remover-vice')
+        .setDescription('Remove um cargo de vice-liderança desta divisão')
+        .addStringOption((o) => o.setName('chave').setDescription('Chave da divisão').setRequired(true).setMaxLength(32))
+        .addRoleOption((o) => o.setName('cargo').setDescription('Cargo do vice-líder').setRequired(true))
     )
     .addSubcommand((sc) => sc.setName('remover')
-        .setDescription('Remove uma divisão do painel de novas candidaturas')
+        .setDescription('Remove uma divisão do painel')
         .addStringOption((o) => o.setName('chave').setDescription('Identificador cadastrado da divisão').setRequired(true).setMaxLength(32))
     )
     .addSubcommand((sc) => sc.setName('disponibilidade')
-        .setDescription('Abre ou pausa as candidaturas de uma divisão específica')
+        .setDescription('Abre ou pausa candidaturas de uma divisão')
         .addStringOption((o) => o.setName('chave').setDescription('Identificador da divisão').setRequired(true).setMaxLength(32))
         .addBooleanOption((o) => o.setName('ligado').setDescription('True = aceitar candidaturas').setRequired(true))
     )
     .addSubcommand((sc) => sc.setName('formulario')
-        .setDescription('Personaliza as perguntas de uma divisão')
-        .addStringOption((o) => o.setName('chave').setDescription('Identificador cadastrado da divisão').setRequired(true).setMaxLength(32))
+        .setDescription('Configura o formulário que abre ao clicar no botão da divisão')
+        .addStringOption((o) => o.setName('chave').setDescription('Identificador da divisão').setRequired(true).setMaxLength(32))
         .addStringOption((o) => o.setName('perguntas_json').setDescription('Array JSON com 1 a 5 perguntas').setRequired(true).setMaxLength(4000))
     )
     .addSubcommand((sc) => sc.setName('visual')
-        .setDescription('Personaliza a aparência do painel de divisões')
+        .setDescription('Personaliza a aparência geral da embed #divisões')
         .addStringOption((o) => o.setName('titulo').setDescription('Título do embed').setMaxLength(256))
-        .addStringOption((o) => o.setName('descricao').setDescription('Descrição do painel').setMaxLength(4096))
-        .addStringOption((o) => o.setName('texto').setDescription('Texto fora do embed').setMaxLength(2000))
+        .addStringOption((o) => o.setName('descricao').setDescription('Descrição geral do painel').setMaxLength(4096))
         .addStringOption((o) => o.setName('cor').setDescription('Cor hexadecimal, ex.: #8B1A1A').setMaxLength(7))
         .addStringOption((o) => o.setName('miniatura').setDescription('URL de miniatura; hífen para limpar').setMaxLength(500))
-        .addStringOption((o) => o.setName('imagem_gif').setDescription('URL da imagem principal ou GIF; hífen para limpar').setMaxLength(500))
+        .addStringOption((o) => o.setName('imagem_gif').setDescription('URL da imagem/GIF principal; hífen para limpar').setMaxLength(500))
         .addStringOption((o) => o.setName('rodape').setDescription('Texto do rodapé').setMaxLength(2048))
     )
     .addSubcommand((sc) => sc.setName('ativar')
         .setDescription('Abre ou fecha novas candidaturas para as divisões')
         .addBooleanOption((o) => o.setName('ligado').setDescription('True = aberto; False = fechado').setRequired(true))
     )
-    .addSubcommand((sc) => sc.setName('publicar').setDescription('Publica ou atualiza o painel no canal configurado'))
-    .addSubcommand((sc) => sc.setName('preview').setDescription('Visualiza o painel sem publicar'))
-    .addSubcommand((sc) => sc.setName('listar').setDescription('Lista divisões e cargos configurados'))
-    .addSubcommand((sc) => sc.setName('status').setDescription('Mostra o estado e a configuração do sistema'));
+    .addSubcommand((sc) => sc.setName('publicar').setDescription('Publica ou atualiza a embed em #divisões'))
+    .addSubcommand((sc) => sc.setName('preview').setDescription('Visualiza a embed sem publicar'))
+    .addSubcommand((sc) => sc.setName('listar').setDescription('Lista divisões, formulários e lideranças cadastradas'))
+    .addSubcommand((sc) => sc.setName('status').setDescription('Mostra a configuração do recrutamento de divisões'));
 
 export async function executeAlliedDivisions(interaction) {
     if (!interaction.guildId || !interaction.guild) {
