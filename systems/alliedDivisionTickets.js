@@ -366,7 +366,7 @@ export async function updateAlliedDivisionPresentation(guildId, key, patch) {
     const values = [guildId, slug(key)];
     let index = 3;
     for (const [field, value] of entries) {
-        sets.push(`${field} = ${index}`);
+        sets.push(`${field} = $${index}`);
         values.push(value);
         index += 1;
     }
