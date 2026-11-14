@@ -736,12 +736,19 @@ async function handleDivisionReview(interaction, action, id) {
     let request = await getDivisionRequest(id, interaction.guildId);
     if (!request) return interaction.editReply({ content: 'Candidatura não encontrada.' });
 
+    const currentDivision = await getAlliedDivision(interaction.guildId, request.division_key);
+    if (!currentDivision) {
+        return interaction.editReply({ content: 'Esta divisão não está mais cadastrada. A candidatura não pode ser revisada.' });
+    }
     const reviewer = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-    const requestDivisionAccess = {
-        reviewer_role_ids: Array.isArray(request.reviewer_role_ids) ? request.reviewer_role_ids : []
+    const currentLeadership = {
+        reviewer_role_ids: [...new Set([
+            ...(currentDivision.leader_role_ids || []),
+            ...(currentDivision.vice_role_ids || [])
+        ])]
     };
-    if (!reviewer || !canReviewDivision(reviewer, requestDivisionAccess)) {
-        return interaction.editReply({ content: 'Somente líderes e vice-líderes cadastrados para esta divisão podem aceitar ou recusar esta candidatura.' });
+    if (!reviewer || !canReviewDivision(reviewer, currentLeadership)) {
+        return interaction.editReply({ content: 'Somente os cargos atualmente cadastrados como líder ou vice-líder desta divisão podem aceitar ou recusar esta candidatura.' });
     }
     if (!['approve', 'reject'].includes(action)) {
         return interaction.editReply({ content: 'Ação de revisão inválida.' });
