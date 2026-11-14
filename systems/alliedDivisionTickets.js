@@ -852,6 +852,11 @@ export async function handleDivisionTicketInteraction(interaction) {
         await showDivisionPicker(interaction);
         return true;
     }
+    if (interaction.isButton?.() && interaction.customId.startsWith('division-ticket:apply:')) {
+        const divisionKey = interaction.customId.split(':')[2];
+        await handleDivisionApply(interaction, divisionKey);
+        return true;
+    }
     if (interaction.isStringSelectMenu?.() && interaction.customId === 'division-ticket:select') {
         await handleDivisionSelect(interaction);
         return true;
@@ -862,7 +867,7 @@ export async function handleDivisionTicketInteraction(interaction) {
     }
     if (interaction.isButton?.() && interaction.customId.startsWith('division-ticket:')) {
         const [, action, id] = interaction.customId.split(':');
-        if (['approve', 'reject', 'info'].includes(action)) await handleDivisionReview(interaction, action, id);
+        if (['approve', 'reject'].includes(action)) await handleDivisionReview(interaction, action, id);
         else if (action === 'close') await handleDivisionClose(interaction, id);
         else return false;
         return true;
