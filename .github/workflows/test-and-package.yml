@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - feature/admission-acceptance-panel
+      - feature/division-recruitment-panels
   workflow_dispatch:
 
 permissions:
@@ -35,6 +36,9 @@ jobs:
         run: |
           node --check systems/alliedAdmission.js
           node --check commands/allied-admission.js
+          node --check systems/alliedDivisionTickets.js
+          node --check commands/allied-divisions.js
+          node --check index.js
 
       - name: Package full project
         run: |
