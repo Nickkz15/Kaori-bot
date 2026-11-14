@@ -173,7 +173,7 @@ export async function ensureDivisionTicketSchema() {
             PRIMARY KEY (guild_id, division_key)
         );
 
-        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS reviewer_role_ids TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE allied_division_ticket_config ADD COLUMN IF NOT EXISTS submission_channel_id TEXT;\n\n        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS reviewer_role_ids TEXT[] NOT NULL DEFAULT '{}';
         ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
         ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS button_label TEXT NOT NULL DEFAULT '';
         ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS button_style TEXT NOT NULL DEFAULT 'Primary';
@@ -340,7 +340,7 @@ export async function updateAlliedDivisionLeadership(guildId, key, kind, roleId,
     const result = await pool.query(
         `UPDATE allied_divisions
          SET ${column} = CASE
-             WHEN $3 = 'add' THEN COALESCE((SELECT array_agg(DISTINCT role_id) FROM unnest(COALESCE(${column}, '{}'::text[]) || ARRAY[$4]::text[]) AS role_id), '{}'::text[])
+             WHEN $3 = 'add' THEN COALESCE((SELECT array_agg(DISTINCT role_id) FROM unnest(COALESCE(${column}, '{}'::text[]) || ARRAY[$4]::text[]) AS roles(role_id)), '{}'::text[])
              ELSE array_remove(COALESCE(${column}, '{}'::text[]), $4)
          END,
          updated_at = NOW()
@@ -353,7 +353,7 @@ export async function updateAlliedDivisionLeadership(guildId, key, kind, roleId,
 }
 
 export async function updateAlliedDivisionPresentation(guildId, key, patch) {
-    const allowed = new Set(['description', 'button_label', 'button_style', 'submission_channel_id']);
+    const allowed = new Set(['description', 'button_label', 'button_style', 'submission_channel_id', 'emoji']);
     const entries = Object.entries(patch).filter(([field]) => allowed.has(field));
     if (!entries.length) throw new Error('Nenhuma configuração de apresentação foi informada.');
     const sets = [];
@@ -436,7 +436,7 @@ export function buildDivisionPanelPayload(config, divisions) {
     if (config.panel_footer_text) embed.setFooter({ text: cleanText(config.panel_footer_text, 2048) });
 
     if (divisions.length) {
-        embed.addFields(divisions.map((division) => ({
+        embed.addFields(...divisions.map((division) => ({
             name: `${division.emoji || '✦'} ${cleanText(division.name, 90).toUpperCase()}`.slice(0, 256),
             value: truncate(division.description || DEFAULT_DIVISION_DESCRIPTIONS[division.division_key] || 'Divisão da Allied.', 1024),
             inline: false
