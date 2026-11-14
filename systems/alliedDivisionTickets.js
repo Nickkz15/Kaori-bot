@@ -279,7 +279,7 @@ export async function getAlliedDivision(guildId, key) {
 
 export async function upsertAlliedDivision(guildId, {
     key, name, roleId, emoji = null, reviewerRoleIds = [],
-    description = null, buttonLabel = null, buttonStyle = 'Primary',
+    description = null, buttonLabel = null, buttonStyle = null,
     submissionChannelId = null, questions = DEFAULT_DIVISION_QUESTIONS
 }) {
     const divisionKey = slug(key);
@@ -290,11 +290,13 @@ export async function upsertAlliedDivision(guildId, {
     if (!divisionName) throw new Error('O nome da divisão é obrigatório.');
     if (!/^\d{17,20}$/.test(String(roleId || ''))) throw new Error('Selecione um cargo válido para a divisão.');
     if (submissionChannelId && !/^\d{17,20}$/.test(String(submissionChannelId))) throw new Error('Canal de envio inválido.');
+
     const normalizedQuestions = validateDivisionQuestions(questions);
     const defaultDescription = DEFAULT_DIVISION_DESCRIPTIONS[divisionKey] || `Conheça a ${divisionName} e descubra como contribuir para a Allied.`;
-    const finalDescription = cleanText(description ?? defaultDescription, 1024) || defaultDescription;
-    const finalButtonLabel = cleanText(buttonLabel ?? `Entrar em ${divisionName}`, 80) || `Entrar em ${divisionName}`;
-    const finalButtonStyle = ['Primary', 'Secondary', 'Success', 'Danger'].includes(buttonStyle) ? buttonStyle : 'Primary';
+    const finalDescription = description == null ? defaultDescription : (cleanText(description, 1024) || defaultDescription);
+    const finalButtonLabel = buttonLabel == null ? `Entrar em ${divisionName}` : (cleanText(buttonLabel, 80) || `Entrar em ${divisionName}`);
+    const finalButtonStyle = buttonStyle == null ? 'Primary' : (['Primary', 'Secondary', 'Success', 'Danger'].includes(buttonStyle) ? buttonStyle : 'Primary');
+
     const result = await pool.query(
         `INSERT INTO allied_divisions
             (guild_id, division_key, name, role_id, emoji, reviewer_role_ids, enabled, questions,
@@ -307,19 +309,28 @@ export async function upsertAlliedDivision(guildId, {
             reviewer_role_ids = CASE WHEN cardinality(EXCLUDED.reviewer_role_ids) > 0 THEN EXCLUDED.reviewer_role_ids ELSE allied_divisions.reviewer_role_ids END,
             enabled = TRUE,
             questions = EXCLUDED.questions,
-            description = CASE WHEN $8 IS NOT NULL THEN EXCLUDED.description ELSE COALESCE(NULLIF(allied_divisions.description, ''), EXCLUDED.description) END,
-            button_label = CASE WHEN $9 IS NOT NULL THEN EXCLUDED.button_label ELSE COALESCE(NULLIF(allied_divisions.button_label, ''), EXCLUDED.button_label) END,
-            button_style = CASE WHEN $10 IS NOT NULL THEN EXCLUDED.button_style ELSE allied_divisions.button_style END,
+            description = CASE WHEN $12 THEN EXCLUDED.description ELSE allied_divisions.description END,
+            button_label = CASE WHEN $13 THEN EXCLUDED.button_label ELSE allied_divisions.button_label END,
+            button_style = CASE WHEN $14 THEN EXCLUDED.button_style ELSE allied_divisions.button_style END,
             submission_channel_id = COALESCE(EXCLUDED.submission_channel_id, allied_divisions.submission_channel_id),
             updated_at = NOW()
          RETURNING *`,
-        [guildId, divisionKey, divisionName, roleId, emoji ? String(emoji).slice(0, 64) : null,
-            [...new Set(reviewerRoleIds)], JSON.stringify(normalizedQuestions), finalDescription,
-            finalButtonLabel, finalButtonStyle, submissionChannelId]
+        [
+            guildId, divisionKey, divisionName, roleId,
+            emoji ? String(emoji).slice(0, 64) : null,
+            [...new Set(reviewerRoleIds)],
+            JSON.stringify(normalizedQuestions),
+            finalDescription,
+            finalButtonLabel,
+            finalButtonStyle,
+            submissionChannelId,
+            description != null,
+            buttonLabel != null,
+            buttonStyle != null
+        ]
     );
     return normalizeDivision(result.rows[0]);
 }
-
 export async function updateAlliedDivisionLeadership(guildId, key, kind, roleId, action) {
     const divisionKey = slug(key);
     const column = kind === 'leader' ? 'leader_role_ids' : kind === 'vice' ? 'vice_role_ids' : null;
