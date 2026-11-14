@@ -342,7 +342,11 @@ export async function updateAlliedDivisionLeadership(guildId, key, kind, roleId,
     const result = await pool.query(
         `UPDATE allied_divisions
          SET ${column} = CASE
-             WHEN $3 = 'add' THEN COALESCE((SELECT array_agg(DISTINCT role_id) FROM unnest(COALESCE(${column}, '{}'::text[]) || ARRAY[$4]::text[]) AS roles(role_id)), '{}'::text[])
+             WHEN $3 = 'add' THEN
+                 CASE
+                     WHEN $4 = ANY(COALESCE(${column}, '{}'::text[])) THEN COALESCE(${column}, '{}'::text[])
+                     ELSE array_append(COALESCE(${column}, '{}'::text[]), $4)
+                 END
              ELSE array_remove(COALESCE(${column}, '{}'::text[]), $4)
          END,
          updated_at = NOW()
