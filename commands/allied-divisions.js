@@ -470,9 +470,11 @@ export async function executeAlliedDivisions(interaction) {
         }
 
         const lines = divisions.map((division) => {
-            const reviewerCount = Array.isArray(division.reviewer_role_ids) ? division.reviewer_role_ids.length : 0;
             const questionCount = Array.isArray(division.questions) ? division.questions.length : 0;
-            return `${division.enabled ? '🟢' : '⚪'} **${division.name}** · chave \`${division.division_key}\` · <@&${division.role_id}> · ${questionCount} pergunta(s) · revisores: ${reviewerCount}`;
+            const leaders = (division.leader_role_ids || []).length;
+            const viceLeaders = (division.vice_role_ids || []).length;
+            const destination = division.submission_channel_id ? `<#${division.submission_channel_id}>` : 'canal padrão';
+            return `${division.enabled ? '🟢' : '⚪'} **${division.name}** · chave \`${division.division_key}\` · cargo <@&${division.role_id}> · ${questionCount} pergunta(s) · líderes: ${leaders} · vice-líderes: ${viceLeaders} · envio: ${destination}`;
         });
 
         const embed = new EmbedBuilder()
@@ -503,13 +505,13 @@ export async function executeAlliedDivisions(interaction) {
         .setTitle('ALLIED · Division Tickets')
         .setDescription(config.enabled ? '🟢 **Candidaturas abertas**' : '⚪ **Candidaturas fechadas**')
         .addFields(
-            { name: 'Painel', value: config.panel_channel_id ? `<#${config.panel_channel_id}>` : 'Não configurado', inline: true },
-            { name: 'Categoria', value: config.ticket_category_id ? `<#${config.ticket_category_id}>` : 'Não configurada', inline: true },
-            { name: 'Divisões', value: String(divisions.length), inline: true },
-            { name: 'Cargo de membro exigido', value: config.member_role_id ? `<@&${config.member_role_id}>` : 'Não configurado', inline: true },
-            { name: 'Equipe', value: String(staffCount), inline: true }
+            { name: 'Painel público', value: config.panel_channel_id ? `<#${config.panel_channel_id}>` : 'Não configurado', inline: true },
+            { name: 'Canal padrão de entrada', value: config.submission_channel_id ? `<#${config.submission_channel_id}>` : 'Não configurado', inline: true },
+            { name: 'Divisões cadastradas', value: String(divisions.length), inline: true },
+            { name: 'Cargo exigido', value: config.member_role_id ? `<@&${config.member_role_id}>` : 'Não configurado', inline: true },
+            { name: 'Divisões ativas', value: String(divisions.filter((division) => division.enabled).length), inline: true }
         )
-        .setFooter({ text: 'Os cargos de divisão só são atribuídos após aprovação da equipe.' });
+        .setFooter({ text: 'Somente os cargos de líder e vice-líder de cada divisão podem aceitar ou recusar.' });
 
     return interaction.reply({
         embeds: [embed],
