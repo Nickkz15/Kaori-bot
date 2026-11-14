@@ -485,6 +485,10 @@ export function canReviewDivision(member, request) {
     return allowedRoles.some((roleId) => member.roles?.cache?.has(roleId));
 }
 
+function canReview(member, config, division = null) {
+    return canReviewDivision(member, division);
+}
+
 export function buildDivisionRequestCard(request, division, answers) {
     const embed = new EmbedBuilder()
         .setColor(CARMINE)
@@ -716,31 +720,45 @@ async function closeDivisionRequestIfOpen(id, guildId, reviewerId) {
 
 async function handleDivisionReview(interaction, action, id) {
     await interaction.deferReply({ ephemeral: true });
-    const config = await getDivisionTicketConfig(interaction.guildId);
     let request = await getDivisionRequest(id, interaction.guildId);
     if (!request) return interaction.editReply({ content: 'Candidatura não encontrada.' });
+
     const reviewer = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-    const requestDivisionAccess = { reviewer_role_ids: Array.isArray(request.reviewer_role_ids) ? request.reviewer_role_ids : [] };
-    if (!reviewer || !canReview(reviewer, config, requestDivisionAccess)) return interaction.editReply({ content: 'Somente a equipe autorizada para esta divisão pode revisar candidaturas.' });
+    const requestDivisionAccess = {
+        reviewer_role_ids: Array.isArray(request.reviewer_role_ids) ? request.reviewer_role_ids : []
+    };
+    if (!reviewer || !canReviewDivision(reviewer, requestDivisionAccess)) {
+        return interaction.editReply({ content: 'Somente líderes e vice-líderes cadastrados para esta divisão podem aceitar ou recusar esta candidatura.' });
+    }
+    if (!['approve', 'reject'].includes(action)) {
+        return interaction.editReply({ content: 'Ação de revisão inválida.' });
+    }
     if (!REVIEWABLE_STATUSES.includes(request.status)) {
         const statusMessage = request.status === 'reviewing'
-            ? 'Esta candidatura já está sendo analisada por outra pessoa da equipe.'
+            ? 'Esta candidatura já está sendo analisada por outra pessoa da liderança.'
             : `Esta candidatura já está **${request.status}**.`;
         return interaction.editReply({ content: statusMessage });
     }
-    const ticket = await interaction.guild.channels.fetch(request.channel_id).catch(() => null);
-    if (!ticket?.isTextBased()) return interaction.editReply({ content: 'Canal de atendimento não encontrado.' });
+
+    const reviewChannel = await interaction.guild.channels.fetch(request.channel_id).catch(() => null);
+    if (!reviewChannel?.isTextBased()) {
+        return interaction.editReply({ content: 'Canal de entrada da divisão não encontrado.' });
+    }
 
     const previousStatus = request.status;
     request = await claimDivisionRequest(id, interaction.guildId, interaction.user.id);
-    if (!request) return interaction.editReply({ content: 'Outra pessoa da equipe começou a analisar esta candidatura. Atualize o atendimento.' });
+    if (!request) {
+        return interaction.editReply({ content: 'Outra pessoa da liderança começou a analisar esta candidatura. Atualize a mensagem.' });
+    }
 
     if (action === 'approve') {
         const member = await interaction.guild.members.fetch(request.user_id).catch(() => null);
         if (!member) {
             await setDivisionRequestStatus(id, interaction.guildId, 'cancelled', interaction.user.id, 'Candidato saiu do servidor.');
+            await interaction.message.edit({ components: [] }).catch(() => {});
             return interaction.editReply({ content: 'O candidato saiu do servidor. A candidatura foi cancelada.' });
         }
+
         const role = await interaction.guild.roles.fetch(request.division_role_id).catch(() => null);
         if (!role || role.id === interaction.guild.roles.everyone.id || role.managed) {
             await setDivisionRequestStatus(id, interaction.guildId, previousStatus).catch(() => {});
@@ -751,6 +769,7 @@ async function handleDivisionReview(interaction, action, id) {
             await setDivisionRequestStatus(id, interaction.guildId, previousStatus).catch(() => {});
             return interaction.editReply({ content: 'Não consigo atribuir esse cargo. Verifique Gerenciar Cargos e a hierarquia da Kaori.' });
         }
+
         let added = false;
         try {
             if (!member.roles.cache.has(role.id)) {
@@ -766,29 +785,44 @@ async function handleDivisionReview(interaction, action, id) {
             console.error('[AlliedDivisionTickets] approve:', error);
             return interaction.editReply({ content: `Não consegui concluir a aprovação: ${truncate(error.message, 180)}.` });
         }
-        await ticket.send({ content: `A candidatura foi **aprovada** por ${interaction.user}. O cargo ${role} foi atribuído.`, allowedMentions: { users: [], roles: [role.id], parse: [] } }).catch(() => {});
-        await interaction.message.edit({ components: [buildDivisionCloseRow(id)] }).catch(() => {});
-        await member.send(`Sua entrada na divisão **${request.division_name}** da Allied foi aprovada. Bem-vindo(a)!`).catch(() => {});
+
+        await interaction.message.edit({ components: [] }).catch(() => {});
+        await reviewChannel.send({
+            content: `A candidatura de <@${member.id}> para **${request.division_name}** foi **aceita** por ${interaction.user}. O cargo ${role} foi atribuído.`,
+            allowedMentions: { users: [], roles: [role.id], parse: [] }
+        }).catch((error) => console.error('[AlliedDivisionTickets] approval notice:', error.message));
+        await member.send(`Sua entrada na divisão **${request.division_name}** da Allied foi aprovada. Bem-vindo(a)!`).catch((error) => {
+            console.warn('[AlliedDivisionTickets] approval DM could not be delivered:', error?.code || error?.message);
+        });
         return interaction.editReply({ content: `Aprovação concluída. ${member} recebeu ${role}.` });
     }
 
-    if (action === 'reject') {
-        await setDivisionRequestStatus(id, interaction.guildId, 'rejected', interaction.user.id);
-        await ticket.send({ content: `A candidatura para **${request.division_name}** foi recusada por ${interaction.user}. Caso tenha dúvidas, consulte a equipe.` }).catch(() => {});
-        await interaction.message.edit({ components: [buildDivisionCloseRow(id)] }).catch(() => {});
-        const user = await interaction.client.users.fetch(request.user_id).catch(() => null);
-        await user?.send(`Sua candidatura para a divisão **${request.division_name}** não foi aprovada neste momento.`).catch(() => {});
-        return interaction.editReply({ content: 'Candidatura recusada e decisão registrada.' });
-    }
+    await setDivisionRequestStatus(id, interaction.guildId, 'rejected', interaction.user.id);
+    await interaction.message.edit({ components: [] }).catch(() => {});
+    await reviewChannel.send({
+        content: `A candidatura de <@${request.user_id}> para **${request.division_name}** foi **recusada** por ${interaction.user}.`,
+        allowedMentions: { users: [], parse: [] }
+    }).catch((error) => console.error('[AlliedDivisionTickets] rejection notice:', error.message));
 
-    if (action === 'info') {
-        await setDivisionRequestStatus(id, interaction.guildId, 'waiting_info', interaction.user.id);
-        await ticket.send({ content: `<@${request.user_id}> a equipe precisa de mais informações para continuar sua análise. Responda neste canal, por favor.`, allowedMentions: { users: [request.user_id], parse: [] } }).catch(() => {});
-        return interaction.editReply({ content: 'Pedido de esclarecimento enviado.' });
+    const user = await interaction.client.users.fetch(request.user_id).catch((error) => {
+        console.warn('[AlliedDivisionTickets] could not fetch applicant for rejection DM:', error?.code || error?.message);
+        return null;
+    });
+    let dmSent = false;
+    if (user) {
+        try {
+            await user.send(`Sua candidatura para a divisão **${request.division_name}** da Allied foi recusada. Você pode conversar com a liderança da divisão caso precise de mais informações.`);
+            dmSent = true;
+        } catch (error) {
+            console.warn('[AlliedDivisionTickets] rejection DM could not be delivered:', error?.code || error?.message);
+        }
     }
-    return interaction.editReply({ content: 'Ação desconhecida.' });
+    return interaction.editReply({
+        content: dmSent
+            ? 'Candidatura recusada. A mensagem foi enviada por DM.'
+            : 'Candidatura recusada, mas não foi possível enviar a DM. O candidato pode estar com as mensagens privadas fechadas.'
+    });
 }
-
 async function handleDivisionClose(interaction, id) {
     await interaction.deferReply({ ephemeral: true });
     const config = await getDivisionTicketConfig(interaction.guildId);
