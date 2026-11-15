@@ -26,17 +26,25 @@ export const DEFAULT_DIVISION_QUESTIONS = Object.freeze([
     { id: 'motivation', label: 'Por que deseja entrar nesta divisão?', placeholder: 'O que espera contribuir e aprender?', style: 'paragraph', required: true, max_length: 700 }
 ]);
 
+export const DEFAULT_DIVISION_DESCRIPTIONS = Object.freeze({
+    chuva: 'A Divisão da Chuva é uma frente voltada aos membros que atuam com estratégia, precisão e controle, priorizando decisões calculadas e execução disciplinada. É a divisão para quem prefere entender o cenário antes de agir e transformar situações caóticas em algo previsível.\n\n• Foco em estratégia e precisão;\n• Presença marcada por disciplina e paciência;\n• Ideal para membros que preferem resultado ao alarde.\n\nSeu objetivo é reunir aqueles que trabalham melhor sob pressão sem perder o controle, mantendo uma atuação constante dentro da estrutura da Allied.',
+    sangue: 'A Divisão do Sangue representa a presença ofensiva da Allied, sendo voltada aos membros que se destacam por iniciativa, intensidade e capacidade de impor ritmo. É uma frente para quem prefere agir, pressionar e transformar confronto em oportunidade.\n\n• Foco em impacto e iniciativa;\n• Voltada a membros de postura agressiva e determinada;\n• Presença marcada por intensidade e domínio.\n\nSeu objetivo é concentrar membros que não esperam o cenário mudar por conta própria, mas procuram criar o momento e conduzir a situação em seu favor.',
+    abismo: 'A Divisão do Abismo é uma frente dedicada aos membros que valorizam informação, observação e controle do que acontece por trás das decisões visíveis. Sua força está menos na exposição e mais na capacidade de compreender o cenário antes que os outros percebam o movimento.\n\n• Foco em profundidade e leitura de cenário;\n• Valorização de informação, timing e paciência;\n• Perfil mais reservado e estratégico.\n\nSeu objetivo é reunir aqueles que preferem trabalhar nas camadas menos evidentes da estrutura, influenciando decisões por meio de análise, controle e conhecimento.',
+    eclipse: 'A Divisão do Eclipse reúne os membros que conseguem transitar entre diferentes formas de atuação, adaptando sua postura conforme a situação exige. Sua identidade está na dualidade: saber quando avançar, quando recuar e quando mudar completamente a abordagem.\n\n• Foco em adaptação e versatilidade;\n• Equilíbrio entre pressão e contenção;\n• Compatível com diferentes estilos de atuação.\n\nSeu objetivo é reunir membros capazes de lidar com situações imprevisíveis sem ficar presos a uma única maneira de agir, encontrando equilíbrio entre forças opostas dentro da estrutura da Allied.'
+});
+
 export const DIVISION_TICKET_DEFAULTS = Object.freeze({
     enabled: false,
     panel_channel_id: null,
     panel_message_id: null,
+    submission_channel_id: null,
     ticket_category_id: null,
     log_channel_id: null,
     member_role_id: '1524393369835671663',
     staff_role_ids: [],
-    panel_title: 'ALLIED | INGRESSO NAS DIVISÕES',
-    panel_description: 'Cada divisão tem seu próprio propósito, responsabilidades e estilo de atuação.\n\nEscolha abaixo a divisão que combina com seu perfil e preencha a candidatura. A equipe responsável fará a análise antes de conceder qualquer cargo.',
-    panel_content: '✦ ALLIED · DIVISION ADMISSIONS',
+    panel_title: 'ALLIED | DIVISÕES',
+    panel_description: 'Cada divisão possui uma identidade, um propósito e uma forma própria de contribuir para a Allied. Conheça cada uma e escolha onde deseja construir sua trajetória.',
+    panel_content: '',
     panel_color: '#8B1A1A',
     panel_thumbnail_url: null,
     panel_image_url: null,
@@ -109,9 +117,16 @@ function normalizeDivision(row) {
     if (typeof questions === 'string') {
         try { questions = JSON.parse(questions); } catch { questions = DEFAULT_DIVISION_QUESTIONS; }
     }
+    const divisionKey = String(row.division_key || '').toLowerCase();
+    const description = String(row.description || DEFAULT_DIVISION_DESCRIPTIONS[divisionKey] || `Conheça a ${row.name} e descubra como contribuir para a Allied.`);
     return {
         ...row,
+        description: cleanText(description, 1024),
+        button_label: cleanText(row.button_label, 80, `Entrar em ${row.name}`) || `Entrar em ${row.name}`,
+        button_style: ['Primary', 'Secondary', 'Success', 'Danger'].includes(row.button_style) ? row.button_style : 'Primary',
         reviewer_role_ids: Array.isArray(row.reviewer_role_ids) ? row.reviewer_role_ids : [],
+        leader_role_ids: Array.isArray(row.leader_role_ids) ? row.leader_role_ids : [],
+        vice_role_ids: Array.isArray(row.vice_role_ids) ? row.vice_role_ids : [],
         questions: validateDivisionQuestions(Array.isArray(questions) && questions.length ? questions : DEFAULT_DIVISION_QUESTIONS)
     };
 }
@@ -123,6 +138,7 @@ export async function ensureDivisionTicketSchema() {
             enabled BOOLEAN NOT NULL DEFAULT FALSE,
             panel_channel_id TEXT,
             panel_message_id TEXT,
+            submission_channel_id TEXT,
             ticket_category_id TEXT,
             log_channel_id TEXT,
             member_role_id TEXT,
@@ -144,6 +160,12 @@ export async function ensureDivisionTicketSchema() {
             role_id TEXT NOT NULL,
             emoji TEXT,
             reviewer_role_ids TEXT[] NOT NULL DEFAULT '{}',
+            description TEXT NOT NULL DEFAULT '',
+            button_label TEXT NOT NULL DEFAULT '',
+            button_style TEXT NOT NULL DEFAULT 'Primary',
+            submission_channel_id TEXT,
+            leader_role_ids TEXT[] NOT NULL DEFAULT '{}',
+            vice_role_ids TEXT[] NOT NULL DEFAULT '{}',
             enabled BOOLEAN NOT NULL DEFAULT TRUE,
             questions JSONB NOT NULL DEFAULT '[]'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -151,7 +173,15 @@ export async function ensureDivisionTicketSchema() {
             PRIMARY KEY (guild_id, division_key)
         );
 
+        ALTER TABLE allied_division_ticket_config ADD COLUMN IF NOT EXISTS submission_channel_id TEXT;
+
         ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS reviewer_role_ids TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS button_label TEXT NOT NULL DEFAULT '';
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS button_style TEXT NOT NULL DEFAULT 'Primary';
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS submission_channel_id TEXT;
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS leader_role_ids TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE allied_divisions ADD COLUMN IF NOT EXISTS vice_role_ids TEXT[] NOT NULL DEFAULT '{}';
 
         CREATE TABLE IF NOT EXISTS allied_division_requests (
             id BIGSERIAL PRIMARY KEY,
@@ -249,7 +279,11 @@ export async function getAlliedDivision(guildId, key) {
     return normalizeDivision(result.rows[0]);
 }
 
-export async function upsertAlliedDivision(guildId, { key, name, roleId, emoji = null, reviewerRoleIds = [], questions = DEFAULT_DIVISION_QUESTIONS }) {
+export async function upsertAlliedDivision(guildId, {
+    key, name, roleId, emoji = null, reviewerRoleIds = [],
+    description = null, buttonLabel = null, buttonStyle = null,
+    submissionChannelId = null, questions = DEFAULT_DIVISION_QUESTIONS
+}) {
     const divisionKey = slug(key);
     const divisionName = cleanText(name, 80);
     if (!divisionKey || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(divisionKey)) {
@@ -257,17 +291,92 @@ export async function upsertAlliedDivision(guildId, { key, name, roleId, emoji =
     }
     if (!divisionName) throw new Error('O nome da divisão é obrigatório.');
     if (!/^\d{17,20}$/.test(String(roleId || ''))) throw new Error('Selecione um cargo válido para a divisão.');
+    if (submissionChannelId && !/^\d{17,20}$/.test(String(submissionChannelId))) throw new Error('Canal de envio inválido.');
+
     const normalizedQuestions = validateDivisionQuestions(questions);
+    const defaultDescription = DEFAULT_DIVISION_DESCRIPTIONS[divisionKey] || `Conheça a ${divisionName} e descubra como contribuir para a Allied.`;
+    const finalDescription = description == null ? defaultDescription : (cleanText(description, 1024) || defaultDescription);
+    const finalButtonLabel = buttonLabel == null ? `Entrar em ${divisionName}` : (cleanText(buttonLabel, 80) || `Entrar em ${divisionName}`);
+    const finalButtonStyle = buttonStyle == null ? 'Primary' : (['Primary', 'Secondary', 'Success', 'Danger'].includes(buttonStyle) ? buttonStyle : 'Primary');
+
     const result = await pool.query(
-        `INSERT INTO allied_divisions (guild_id, division_key, name, role_id, emoji, reviewer_role_ids, enabled, questions)
-         VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7::jsonb)
+        `INSERT INTO allied_divisions
+            (guild_id, division_key, name, role_id, emoji, reviewer_role_ids, enabled, questions,
+             description, button_label, button_style, submission_channel_id)
+         VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7::jsonb,$8,$9,$10,$11)
          ON CONFLICT (guild_id, division_key) DO UPDATE SET
-            name = EXCLUDED.name, role_id = EXCLUDED.role_id, emoji = EXCLUDED.emoji,
+            name = EXCLUDED.name,
+            role_id = EXCLUDED.role_id,
+            emoji = COALESCE(EXCLUDED.emoji, allied_divisions.emoji),
             reviewer_role_ids = CASE WHEN cardinality(EXCLUDED.reviewer_role_ids) > 0 THEN EXCLUDED.reviewer_role_ids ELSE allied_divisions.reviewer_role_ids END,
-            enabled = TRUE, questions = EXCLUDED.questions, updated_at = NOW()
+            enabled = TRUE,
+            questions = EXCLUDED.questions,
+            description = CASE WHEN $12 THEN EXCLUDED.description ELSE allied_divisions.description END,
+            button_label = CASE WHEN $13 THEN EXCLUDED.button_label ELSE allied_divisions.button_label END,
+            button_style = CASE WHEN $14 THEN EXCLUDED.button_style ELSE allied_divisions.button_style END,
+            submission_channel_id = COALESCE(EXCLUDED.submission_channel_id, allied_divisions.submission_channel_id),
+            updated_at = NOW()
          RETURNING *`,
-        [guildId, divisionKey, divisionName, roleId, emoji ? String(emoji).slice(0, 64) : null, [...new Set(reviewerRoleIds)], JSON.stringify(normalizedQuestions)]
+        [
+            guildId, divisionKey, divisionName, roleId,
+            emoji ? String(emoji).slice(0, 64) : null,
+            [...new Set(reviewerRoleIds)],
+            JSON.stringify(normalizedQuestions),
+            finalDescription,
+            finalButtonLabel,
+            finalButtonStyle,
+            submissionChannelId,
+            description != null,
+            buttonLabel != null,
+            buttonStyle != null
+        ]
     );
+    return normalizeDivision(result.rows[0]);
+}
+export async function updateAlliedDivisionLeadership(guildId, key, kind, roleId, action) {
+    const divisionKey = slug(key);
+    const column = kind === 'leader' ? 'leader_role_ids' : kind === 'vice' ? 'vice_role_ids' : null;
+    if (!column) throw new Error('Tipo de liderança inválido.');
+    if (!/^\d{17,20}$/.test(String(roleId || ''))) throw new Error('Selecione um cargo válido.');
+    if (!['add', 'remove'].includes(action)) throw new Error('Ação inválida.');
+    const result = await pool.query(
+        `UPDATE allied_divisions
+         SET ${column} = CASE
+             WHEN $3 = 'add' THEN
+                 CASE
+                     WHEN $4 = ANY(COALESCE(${column}, '{}'::text[])) THEN COALESCE(${column}, '{}'::text[])
+                     ELSE array_append(COALESCE(${column}, '{}'::text[]), $4)
+                 END
+             ELSE array_remove(COALESCE(${column}, '{}'::text[]), $4)
+         END,
+         updated_at = NOW()
+         WHERE guild_id = $1 AND division_key = $2
+         RETURNING *`,
+        [guildId, divisionKey, action, roleId]
+    );
+    if (!result.rows[0]) throw new Error('Divisão não encontrada. Confira a chave informada.');
+    return normalizeDivision(result.rows[0]);
+}
+
+export async function updateAlliedDivisionPresentation(guildId, key, patch) {
+    const allowed = new Set(['description', 'button_label', 'button_style', 'submission_channel_id', 'emoji']);
+    const entries = Object.entries(patch).filter(([field]) => allowed.has(field));
+    if (!entries.length) throw new Error('Nenhuma configuração de apresentação foi informada.');
+    const sets = [];
+    const values = [guildId, slug(key)];
+    let index = 3;
+    for (const [field, value] of entries) {
+        sets.push(`${field} = $${index}`);
+        values.push(value);
+        index += 1;
+    }
+    sets.push('updated_at = NOW()');
+    const result = await pool.query(
+        `UPDATE allied_divisions SET ${sets.join(', ')}
+         WHERE guild_id = $1 AND division_key = $2 RETURNING *`,
+        values
+    );
+    if (!result.rows[0]) throw new Error('Divisão não encontrada.');
     return normalizeDivision(result.rows[0]);
 }
 
@@ -319,6 +428,9 @@ function buildDivisionModal(division) {
 }
 
 export function buildDivisionPanelPayload(config, divisions) {
+    if (!Array.isArray(divisions) || divisions.length > 25) {
+        throw new Error('O painel aceita no máximo 25 divisões ativas, uma por botão.');
+    }
     const embed = new EmbedBuilder()
         .setColor(Number.isFinite(Number.parseInt(String(config.panel_color || '#8B1A1A').replace('#', ''), 16)) ? Number.parseInt(String(config.panel_color || '#8B1A1A').replace('#', ''), 16) : CARMINE)
         .setTitle(cleanText(config.panel_title, 256, DIVISION_TICKET_DEFAULTS.panel_title));
@@ -328,33 +440,42 @@ export function buildDivisionPanelPayload(config, divisions) {
     if (thumb) embed.setThumbnail(thumb);
     if (image) embed.setImage(image);
     if (config.panel_footer_text) embed.setFooter({ text: cleanText(config.panel_footer_text, 2048) });
+
     if (divisions.length) {
-        embed.addFields({
-            name: 'DIVISÕES DISPONÍVEIS',
-            value: divisions.slice(0, 25).map((division) => `${division.emoji || '✦'} **${division.name}**`).join('\n'),
+        embed.addFields(...divisions.map((division) => ({
+            name: `${division.emoji || '✦'} ${cleanText(division.name, 90).toUpperCase()}`.slice(0, 256),
+            value: truncate(division.description || DEFAULT_DIVISION_DESCRIPTIONS[division.division_key] || 'Divisão da Allied.', 1024),
             inline: false
-        });
+        })));
     } else {
         embed.addFields({ name: 'INSCRIÇÕES', value: 'Nenhuma divisão está aceitando candidaturas no momento.' });
     }
-    const payload = {
-        content: cleanText(config.panel_content, 2000) || undefined,
-        embeds: [embed],
-        allowedMentions: { parse: [] }
-    };
+
+    const embedJson = embed.toJSON();
+    const totalCharacters = [
+        embedJson.title || '', embedJson.description || '', embedJson.author?.name || '',
+        embedJson.footer?.text || '',
+        ...(embedJson.fields || []).flatMap((field) => [field.name, field.value])
+    ].join('').length;
+    if (totalCharacters > 6000) throw new Error('A embed das divisões ultrapassa o limite de 6000 caracteres do Discord.');
+
+    const payload = { embeds: [embed], allowedMentions: { parse: [] } };
     if (divisions.length) {
-        const menu = new StringSelectMenuBuilder()
-            .setCustomId('division-ticket:select')
-            .setPlaceholder('Escolha a divisão que deseja integrar')
-            .setMinValues(1)
-            .setMaxValues(1)
-            .addOptions(divisions.slice(0, 25).map((division) => ({
-                label: division.name.slice(0, 100),
-                value: division.division_key,
-                description: `Solicitar ingresso em ${division.name}`.slice(0, 100),
-                ...(division.emoji ? { emoji: division.emoji } : {})
-            })));
-        payload.components = [new ActionRowBuilder().addComponents(menu)];
+        const rows = [];
+        for (let index = 0; index < divisions.length; index += 5) {
+            const row = new ActionRowBuilder();
+            for (const division of divisions.slice(index, index + 5)) {
+                const style = ButtonStyle[division.button_style] || ButtonStyle.Primary;
+                const button = new ButtonBuilder()
+                    .setCustomId(`division-ticket:apply:${division.division_key}`)
+                    .setLabel(cleanText(division.button_label, 80) || `Entrar em ${division.name}`)
+                    .setStyle(style);
+                if (division.emoji) button.setEmoji(division.emoji);
+                row.addComponents(button);
+            }
+            rows.push(row);
+        }
+        payload.components = rows;
     }
     return payload;
 }
@@ -366,7 +487,7 @@ export async function publishDivisionPanel(guild, config = null) {
     const channel = await guild.channels.fetch(current.panel_channel_id).catch(() => null);
     if (!channel?.isTextBased() || !channel.send) throw new Error('Canal do painel inválido ou inacessível.');
     const divisions = await listAlliedDivisions(guild.id, { enabledOnly: true });
-    if (divisions.length > 25) throw new Error('O Discord permite no máximo 25 opções no seletor de divisões.');
+    if (divisions.length > 25) throw new Error('O Discord permite no máximo 25 botões de divisão.');
     const payload = buildDivisionPanelPayload(current, divisions);
     let message = current.panel_message_id ? await channel.messages.fetch(current.panel_message_id).catch(() => null) : null;
     if (message) await message.edit(payload);
@@ -375,105 +496,114 @@ export async function publishDivisionPanel(guild, config = null) {
     return { channel, message, divisions };
 }
 
-function canReview(member, config, division = null) {
-    if (member.permissions?.has(PermissionFlagsBits.Administrator)) return true;
-    const allowedRoles = [...new Set([...(config.staff_role_ids || []), ...(division?.reviewer_role_ids || [])])];
+export function canReviewDivision(member, request) {
+    if (!member || !request) return false;
+    const allowedRoles = Array.isArray(request.reviewer_role_ids) ? request.reviewer_role_ids : [];
     return allowedRoles.some((roleId) => member.roles?.cache?.has(roleId));
 }
 
-
-function buildDivisionCloseRow(requestId) {
-    return new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId(`division-ticket:close:${requestId}`)
-            .setLabel('Encerrar atendimento')
-            .setStyle(ButtonStyle.Secondary)
-    );
+function canReview(member, config, division = null) {
+    return canReviewDivision(member, division);
 }
 
-function buildDivisionRequestCard(request, division, answers) {
+export function buildDivisionRequestCard(request, division, answers) {
     const embed = new EmbedBuilder()
         .setColor(CARMINE)
-        .setAuthor({ name: 'ALLIED · DIVISION ADMISSIONS' })
+        .setAuthor({ name: 'ALLIED · DIVISION RECRUITMENT' })
         .setTitle(`${division.name} · Candidatura #${request.id}`)
-        .setDescription(`**Candidato:** <@${request.user_id}>\n**Divisão:** ${division.emoji || '✦'} ${division.name}\n**Situação:** Aguardando análise da equipe\n\nA concessão do cargo depende da aprovação de um responsável.`)
+        .setDescription(`**Candidato:** <@${request.user_id}>\n**Divisão:** ${division.emoji || '✦'} ${division.name}\n**Cargo após aprovação:** <@&${request.division_role_id}>\n**Situação:** Aguardando análise dos líderes e vice-líderes\n\nSomente a liderança cadastrada para esta divisão pode aceitar ou recusar a candidatura.`)
         .setTimestamp(new Date(request.created_at || Date.now()))
-        .setFooter({ text: 'ALLIED · Processo de ingresso em divisão' });
+        .setFooter({ text: 'ALLIED · Recrutamento das divisões' });
     for (const question of division.questions) {
-        embed.addFields({ name: truncate(question.label, 256), value: truncate(answers[question.id], 1024), inline: false });
+        embed.addFields({ name: truncate(question.label, 256), value: truncate(answers[question.id], 800), inline: false });
     }
     const actions = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`division-ticket:approve:${request.id}`).setLabel('Aprovar e atribuir cargo').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`division-ticket:reject:${request.id}`).setLabel('Recusar').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId(`division-ticket:info:${request.id}`).setLabel('Solicitar esclarecimento').setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId(`division-ticket:approve:${request.id}`).setLabel('Aceitar candidatura').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`division-ticket:reject:${request.id}`).setLabel('Recusar candidatura').setStyle(ButtonStyle.Danger)
     );
-    const close = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`division-ticket:close:${request.id}`).setLabel('Encerrar atendimento').setStyle(ButtonStyle.Secondary)
-    );
-    return { embeds: [embed], components: [actions, close] };
+    return { embeds: [embed], components: [actions] };
 }
 
-async function createDivisionTicket(interaction, member, division, answers, config) {
+async function createDivisionApplication(interaction, member, division, answers, config) {
+    const guild = interaction.guild;
+    const submissionChannelId = division.submission_channel_id || config.submission_channel_id;
+    const submissionChannel = submissionChannelId
+        ? await guild.channels.fetch(submissionChannelId).catch(() => null)
+        : null;
+    if (!submissionChannel?.isTextBased() || !submissionChannel.send) {
+        throw new Error(`Configure um canal de texto de envio para a divisão ${division.name} (canal_entrada global ou canal_destino da divisão).`);
+    }
+
+    const leaders = [...new Set([...(division.leader_role_ids || []), ...(division.vice_role_ids || [])])];
+    if (!leaders.length) throw new Error(`A divisão ${division.name} ainda não tem líderes ou vice-líderes cadastrados.`);
+
+    const botMember = guild.members.me || await guild.members.fetch(interaction.client.user.id).catch(() => null);
+    if (!botMember) throw new Error('Não consegui localizar a Kaori no servidor.');
+    const botPermissions = submissionChannel.permissionsFor(botMember);
+    const missingPermissions = [];
+    if (!botPermissions?.has(PermissionFlagsBits.ViewChannel)) missingPermissions.push('Ver Canal');
+    if (!botPermissions?.has(PermissionFlagsBits.SendMessages)) missingPermissions.push('Enviar Mensagens');
+    if (!botPermissions?.has(PermissionFlagsBits.EmbedLinks)) missingPermissions.push('Inserir Links');
+    if (missingPermissions.length) {
+        throw new Error(`A Kaori precisa de ${missingPermissions.join(', ')} em <#${submissionChannel.id}>.`);
+    }
+
+    const validLeaderIds = [];
+    for (const roleId of leaders) {
+        const role = await guild.roles.fetch(roleId).catch(() => null);
+        if (!role || role.id === guild.roles.everyone.id || role.managed) continue;
+        const rolePermissions = submissionChannel.permissionsFor(role);
+        if (rolePermissions?.has(PermissionFlagsBits.ViewChannel) && rolePermissions?.has(PermissionFlagsBits.ReadMessageHistory)) {
+            validLeaderIds.push(role.id);
+        }
+    }
+    if (!validLeaderIds.length) {
+        throw new Error(`Nenhum líder ou vice-líder cadastrado consegue ver e ler <#${submissionChannel.id}>. Confira as permissões do canal.`);
+    }
+
     const created = await pool.query(
         `INSERT INTO allied_division_requests
             (guild_id, user_id, division_key, division_name, division_role_id, reviewer_role_ids, display_name, answers, status)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'creating') RETURNING *`,
-        [interaction.guildId, interaction.user.id, division.division_key, division.name, division.role_id,
-            division.reviewer_role_ids || [], member.displayName || interaction.user.globalName || interaction.user.username, JSON.stringify(answers)]
+        [guild.id, interaction.user.id, division.division_key, division.name, division.role_id,
+            validLeaderIds, member.displayName || interaction.user.globalName || interaction.user.username, JSON.stringify(answers)]
     );
     const request = created.rows[0];
-    let ticket = null;
+    let reviewMessage = null;
     try {
-        const guild = interaction.guild;
-        const overwrites = [
-            { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] },
-            { id: interaction.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] }
-        ];
-        const staffIds = [];
-        for (const roleId of [...new Set([...(config.staff_role_ids || []), ...(division.reviewer_role_ids || [])])]) {
-            if (!roleId || roleId === guild.roles.everyone.id) continue;
-            const role = await guild.roles.fetch(roleId).catch(() => null);
-            if (!role) continue;
-            staffIds.push(role.id);
-            overwrites.push({ id: role.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages] });
-        }
-        let parent;
-        if (config.ticket_category_id) {
-            parent = await guild.channels.fetch(config.ticket_category_id).catch(() => null);
-            if (!parent || parent.type !== ChannelType.GuildCategory) throw new Error('A categoria de tíquetes configurada é inválida.');
-        }
-        ticket = await guild.channels.create({
-            name: `div-${slug(division.division_key)}-${request.id}-${slug(member.displayName || interaction.user.username)}`.slice(0, 95),
-            type: ChannelType.GuildText,
-            parent: parent?.id,
-            topic: `ALLIED_DIVISION_REQUEST:${request.id}:${interaction.user.id}:${division.division_key}`,
-            permissionOverwrites: overwrites,
-            reason: `Candidatura para ${division.name} por ${interaction.user.tag}`
-        });
-        const card = buildDivisionRequestCard(request, division, answers);
-        const message = await ticket.send({
-            content: [`<@${interaction.user.id}>`, ...staffIds.map((id) => `<@&${id}>`)].join(' '),
+        // Save channel and open status before publishing the buttons, preventing a fast-click race.
+        await pool.query(
+            `UPDATE allied_division_requests
+             SET status='open', channel_id=$2, updated_at=NOW()
+             WHERE id=$1`,
+            [request.id, submissionChannel.id]
+        );
+
+        const card = buildDivisionRequestCard({ ...request, reviewer_role_ids: validLeaderIds }, division, answers);
+        const leadershipMentions = validLeaderIds.map((id) => `<@&${id}>`).join(' ');
+        reviewMessage = await submissionChannel.send({
+            content: `**Nova candidatura para ${division.name}** · ${leadershipMentions}`,
             ...card,
-            allowedMentions: { users: [interaction.user.id], roles: staffIds, parse: [] }
+            allowedMentions: { users: [], roles: validLeaderIds, parse: [] }
         });
         await pool.query(
-            `UPDATE allied_division_requests SET status='open', channel_id=$2, message_id=$3, updated_at=NOW() WHERE id=$1`,
-            [request.id, ticket.id, message.id]
+            `UPDATE allied_division_requests SET message_id=$2, updated_at=NOW() WHERE id=$1`,
+            [request.id, reviewMessage.id]
         );
+
         if (config.log_channel_id) {
             const log = await guild.channels.fetch(config.log_channel_id).catch(() => null);
             if (log?.isTextBased()) {
                 await log.send({
-                    content: `✦ Nova candidatura para **${division.name}** · #${request.id} · <@${interaction.user.id}> · ${ticket}`,
+                    content: `✦ Nova candidatura para **${division.name}** · #${request.id} · <@${interaction.user.id}> · <#${submissionChannel.id}>`,
                     allowedMentions: { parse: [] }
                 }).catch(() => {});
             }
         }
-        return ticket;
+        return { channel: submissionChannel, message: reviewMessage };
     } catch (error) {
         await pool.query(`UPDATE allied_division_requests SET status='failed', updated_at=NOW() WHERE id=$1`, [request.id]).catch(() => {});
-        if (ticket) await ticket.delete('Falha ao finalizar candidatura de divisão').catch(() => {});
+        if (reviewMessage) await reviewMessage.delete('Falha ao registrar candidatura de divisão').catch(() => {});
         throw error;
     }
 }
@@ -493,32 +623,26 @@ async function showDivisionPicker(interaction) {
         await interaction.reply({ content: 'Nenhuma divisão está recebendo candidaturas no momento.', ephemeral: true });
         return;
     }
-    if (divisions.length > 25) {
-        await interaction.reply({ content: 'A equipe precisa reduzir o número de divisões ativas para no máximo 25.', ephemeral: true });
+    await interaction.reply({ ...buildDivisionPanelPayload(config, divisions), ephemeral: true });
+}
+
+async function handleDivisionApply(interaction, divisionKey) {
+    if (!interaction.guild || !interaction.guildId || interaction.user?.bot) {
+        await interaction.reply({ content: 'Este painel só funciona para pessoas dentro da Allied.', ephemeral: true });
         return;
     }
-    const menu = new StringSelectMenuBuilder()
-        .setCustomId('division-ticket:select')
-        .setPlaceholder('Escolha a divisão que deseja integrar')
-        .setMinValues(1)
-        .setMaxValues(1)
-        .addOptions(divisions.map((division) => ({
-            label: division.name.slice(0, 100),
-            value: division.division_key,
-            description: `Solicitar ingresso em ${division.name}`.slice(0, 100),
-            ...(division.emoji ? { emoji: division.emoji } : {})
-        })));
-    const embed = new EmbedBuilder()
-        .setColor(CARMINE)
-        .setAuthor({ name: 'ALLIED · DIVISION ADMISSIONS' })
-        .setTitle('Escolha sua divisão')
-        .setDescription('Selecione a divisão na qual deseja ingressar. Em seguida, a Kaori abrirá seu formulário privado. A candidatura será analisada pela equipe responsável.');
-    await interaction.reply({
-        embeds: [embed],
-        components: [new ActionRowBuilder().addComponents(menu)],
-        ephemeral: true,
-        allowedMentions: { parse: [] }
-    });
+    const config = await getDivisionTicketConfig(interaction.guildId);
+    if (!config.enabled) {
+        await interaction.reply({ content: 'As candidaturas para divisões estão fechadas no momento.', ephemeral: true });
+        return;
+    }
+    const division = await getAlliedDivision(interaction.guildId, divisionKey);
+    if (!division?.enabled) {
+        await interaction.reply({ content: 'Essa divisão não está aceitando candidaturas no momento.', ephemeral: true });
+        return;
+    }
+    const questions = validateDivisionQuestions(division.questions?.length ? division.questions : DEFAULT_DIVISION_QUESTIONS);
+    await interaction.showModal(buildDivisionModal({ ...division, questions }));
 }
 
 async function handleDivisionSelect(interaction) {
@@ -563,8 +687,8 @@ async function handleDivisionModal(interaction) {
         answers[question.id] = value;
     }
     try {
-        const ticket = await createDivisionTicket(interaction, member, division, answers, config);
-        return interaction.editReply({ content: `Sua candidatura para **${division.name}** foi enviada. A equipe continuará o atendimento em ${ticket}. O cargo só será concedido após aprovação.` });
+        const result = await createDivisionApplication(interaction, member, division, answers, config);
+        return interaction.editReply({ content: `Sua candidatura para **${division.name}** foi enviada para ${result.channel}. Os líderes e vice-líderes responsáveis farão a análise. O cargo só será concedido após aprovação.` });
     } catch (error) {
         if (error?.code === '23505') {
             return interaction.editReply({ content: `Você já possui uma candidatura em andamento para **${division.name}**. Encerre o atendimento atual antes de abrir outra.` });
@@ -613,31 +737,52 @@ async function closeDivisionRequestIfOpen(id, guildId, reviewerId) {
 
 async function handleDivisionReview(interaction, action, id) {
     await interaction.deferReply({ ephemeral: true });
-    const config = await getDivisionTicketConfig(interaction.guildId);
     let request = await getDivisionRequest(id, interaction.guildId);
     if (!request) return interaction.editReply({ content: 'Candidatura não encontrada.' });
+
+    const currentDivision = await getAlliedDivision(interaction.guildId, request.division_key);
+    if (!currentDivision) {
+        return interaction.editReply({ content: 'Esta divisão não está mais cadastrada. A candidatura não pode ser revisada.' });
+    }
     const reviewer = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-    const requestDivisionAccess = { reviewer_role_ids: Array.isArray(request.reviewer_role_ids) ? request.reviewer_role_ids : [] };
-    if (!reviewer || !canReview(reviewer, config, requestDivisionAccess)) return interaction.editReply({ content: 'Somente a equipe autorizada para esta divisão pode revisar candidaturas.' });
+    const currentLeadership = {
+        reviewer_role_ids: [...new Set([
+            ...(currentDivision.leader_role_ids || []),
+            ...(currentDivision.vice_role_ids || [])
+        ])]
+    };
+    if (!reviewer || !canReviewDivision(reviewer, currentLeadership)) {
+        return interaction.editReply({ content: 'Somente os cargos atualmente cadastrados como líder ou vice-líder desta divisão podem aceitar ou recusar esta candidatura.' });
+    }
+    if (!['approve', 'reject'].includes(action)) {
+        return interaction.editReply({ content: 'Ação de revisão inválida.' });
+    }
     if (!REVIEWABLE_STATUSES.includes(request.status)) {
         const statusMessage = request.status === 'reviewing'
-            ? 'Esta candidatura já está sendo analisada por outra pessoa da equipe.'
+            ? 'Esta candidatura já está sendo analisada por outra pessoa da liderança.'
             : `Esta candidatura já está **${request.status}**.`;
         return interaction.editReply({ content: statusMessage });
     }
-    const ticket = await interaction.guild.channels.fetch(request.channel_id).catch(() => null);
-    if (!ticket?.isTextBased()) return interaction.editReply({ content: 'Canal de atendimento não encontrado.' });
+
+    const reviewChannel = await interaction.guild.channels.fetch(request.channel_id).catch(() => null);
+    if (!reviewChannel?.isTextBased()) {
+        return interaction.editReply({ content: 'Canal de entrada da divisão não encontrado.' });
+    }
 
     const previousStatus = request.status;
     request = await claimDivisionRequest(id, interaction.guildId, interaction.user.id);
-    if (!request) return interaction.editReply({ content: 'Outra pessoa da equipe começou a analisar esta candidatura. Atualize o atendimento.' });
+    if (!request) {
+        return interaction.editReply({ content: 'Outra pessoa da liderança começou a analisar esta candidatura. Atualize a mensagem.' });
+    }
 
     if (action === 'approve') {
         const member = await interaction.guild.members.fetch(request.user_id).catch(() => null);
         if (!member) {
             await setDivisionRequestStatus(id, interaction.guildId, 'cancelled', interaction.user.id, 'Candidato saiu do servidor.');
+            await interaction.message.edit({ components: [] }).catch(() => {});
             return interaction.editReply({ content: 'O candidato saiu do servidor. A candidatura foi cancelada.' });
         }
+
         const role = await interaction.guild.roles.fetch(request.division_role_id).catch(() => null);
         if (!role || role.id === interaction.guild.roles.everyone.id || role.managed) {
             await setDivisionRequestStatus(id, interaction.guildId, previousStatus).catch(() => {});
@@ -648,6 +793,7 @@ async function handleDivisionReview(interaction, action, id) {
             await setDivisionRequestStatus(id, interaction.guildId, previousStatus).catch(() => {});
             return interaction.editReply({ content: 'Não consigo atribuir esse cargo. Verifique Gerenciar Cargos e a hierarquia da Kaori.' });
         }
+
         let added = false;
         try {
             if (!member.roles.cache.has(role.id)) {
@@ -663,29 +809,44 @@ async function handleDivisionReview(interaction, action, id) {
             console.error('[AlliedDivisionTickets] approve:', error);
             return interaction.editReply({ content: `Não consegui concluir a aprovação: ${truncate(error.message, 180)}.` });
         }
-        await ticket.send({ content: `A candidatura foi **aprovada** por ${interaction.user}. O cargo ${role} foi atribuído.`, allowedMentions: { users: [], roles: [role.id], parse: [] } }).catch(() => {});
-        await interaction.message.edit({ components: [buildDivisionCloseRow(id)] }).catch(() => {});
-        await member.send(`Sua entrada na divisão **${request.division_name}** da Allied foi aprovada. Bem-vindo(a)!`).catch(() => {});
+
+        await interaction.message.edit({ components: [] }).catch(() => {});
+        await reviewChannel.send({
+            content: `A candidatura de <@${member.id}> para **${request.division_name}** foi **aceita** por ${interaction.user}. O cargo ${role} foi atribuído.`,
+            allowedMentions: { users: [], roles: [role.id], parse: [] }
+        }).catch((error) => console.error('[AlliedDivisionTickets] approval notice:', error.message));
+        await member.send(`Sua entrada na divisão **${request.division_name}** da Allied foi aprovada. Bem-vindo(a)!`).catch((error) => {
+            console.warn('[AlliedDivisionTickets] approval DM could not be delivered:', error?.code || error?.message);
+        });
         return interaction.editReply({ content: `Aprovação concluída. ${member} recebeu ${role}.` });
     }
 
-    if (action === 'reject') {
-        await setDivisionRequestStatus(id, interaction.guildId, 'rejected', interaction.user.id);
-        await ticket.send({ content: `A candidatura para **${request.division_name}** foi recusada por ${interaction.user}. Caso tenha dúvidas, consulte a equipe.` }).catch(() => {});
-        await interaction.message.edit({ components: [buildDivisionCloseRow(id)] }).catch(() => {});
-        const user = await interaction.client.users.fetch(request.user_id).catch(() => null);
-        await user?.send(`Sua candidatura para a divisão **${request.division_name}** não foi aprovada neste momento.`).catch(() => {});
-        return interaction.editReply({ content: 'Candidatura recusada e decisão registrada.' });
-    }
+    await setDivisionRequestStatus(id, interaction.guildId, 'rejected', interaction.user.id);
+    await interaction.message.edit({ components: [] }).catch(() => {});
+    await reviewChannel.send({
+        content: `A candidatura de <@${request.user_id}> para **${request.division_name}** foi **recusada** por ${interaction.user}.`,
+        allowedMentions: { users: [], parse: [] }
+    }).catch((error) => console.error('[AlliedDivisionTickets] rejection notice:', error.message));
 
-    if (action === 'info') {
-        await setDivisionRequestStatus(id, interaction.guildId, 'waiting_info', interaction.user.id);
-        await ticket.send({ content: `<@${request.user_id}> a equipe precisa de mais informações para continuar sua análise. Responda neste canal, por favor.`, allowedMentions: { users: [request.user_id], parse: [] } }).catch(() => {});
-        return interaction.editReply({ content: 'Pedido de esclarecimento enviado.' });
+    const user = await interaction.client.users.fetch(request.user_id).catch((error) => {
+        console.warn('[AlliedDivisionTickets] could not fetch applicant for rejection DM:', error?.code || error?.message);
+        return null;
+    });
+    let dmSent = false;
+    if (user) {
+        try {
+            await user.send(`Sua candidatura para a divisão **${request.division_name}** da Allied foi recusada. Você pode conversar com a liderança da divisão caso precise de mais informações.`);
+            dmSent = true;
+        } catch (error) {
+            console.warn('[AlliedDivisionTickets] rejection DM could not be delivered:', error?.code || error?.message);
+        }
     }
-    return interaction.editReply({ content: 'Ação desconhecida.' });
+    return interaction.editReply({
+        content: dmSent
+            ? 'Candidatura recusada. A mensagem foi enviada por DM.'
+            : 'Candidatura recusada, mas não foi possível enviar a DM. O candidato pode estar com as mensagens privadas fechadas.'
+    });
 }
-
 async function handleDivisionClose(interaction, id) {
     await interaction.deferReply({ ephemeral: true });
     const config = await getDivisionTicketConfig(interaction.guildId);
@@ -715,6 +876,11 @@ export async function handleDivisionTicketInteraction(interaction) {
         await showDivisionPicker(interaction);
         return true;
     }
+    if (interaction.isButton?.() && interaction.customId.startsWith('division-ticket:apply:')) {
+        const divisionKey = interaction.customId.split(':')[2];
+        await handleDivisionApply(interaction, divisionKey);
+        return true;
+    }
     if (interaction.isStringSelectMenu?.() && interaction.customId === 'division-ticket:select') {
         await handleDivisionSelect(interaction);
         return true;
@@ -725,7 +891,7 @@ export async function handleDivisionTicketInteraction(interaction) {
     }
     if (interaction.isButton?.() && interaction.customId.startsWith('division-ticket:')) {
         const [, action, id] = interaction.customId.split(':');
-        if (['approve', 'reject', 'info'].includes(action)) await handleDivisionReview(interaction, action, id);
+        if (['approve', 'reject'].includes(action)) await handleDivisionReview(interaction, action, id);
         else if (action === 'close') await handleDivisionClose(interaction, id);
         else return false;
         return true;
