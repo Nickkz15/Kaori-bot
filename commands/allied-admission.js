@@ -277,6 +277,9 @@ export async function executeAlliedAdmission(interaction) {
             const welcomeChannel = config.welcome_channel_id
                 ? await interaction.guild.channels.fetch(config.welcome_channel_id).catch(() => null)
                 : null;
+            const announcementsChannel = config.announcements_channel_id
+                ? await interaction.guild.channels.fetch(config.announcements_channel_id).catch(() => null)
+                : null;
 
             if (!memberRole || memberRole.id === interaction.guild.roles.everyone.id || memberRole.managed) errors.push('Cargo final de membro inválido ou gerenciado por integração.');
             if (!panelChannel?.isTextBased()) errors.push('Canal do painel não encontrado ou não é de texto.');
@@ -284,22 +287,40 @@ export async function executeAlliedAdmission(interaction) {
             if (config.ticket_category_id && (!ticketCategory || ticketCategory.type !== ChannelType.GuildCategory)) errors.push('Categoria de atendimentos inválida ou inacessível.');
             if (!acceptanceChannel?.isTextBased()) errors.push('Configure um canal de texto válido em canal_aceitacao.');
             if (!welcomeChannel?.isTextBased()) errors.push('Configure um canal de texto válido em canal_conversa.');
+            if (config.announcements_channel_id && !announcementsChannel?.isTextBased()) errors.push('O canal de anúncios configurado é inválido ou inacessível.');
             if (config.log_channel_id && !logChannel?.isTextBased()) errors.push('Canal de logs inválido ou inacessível.');
             if (!botMember?.permissions?.has(PermissionFlagsBits.ManageChannels)) errors.push('A Kaori precisa de Gerenciar Canais.');
             if (!botMember?.permissions?.has(PermissionFlagsBits.ManageRoles)) errors.push('A Kaori precisa de Gerenciar Cargos.');
             if (memberRole && botMember && botMember.roles.highest.position <= memberRole.position) errors.push('O cargo mais alto da Kaori precisa ficar acima do cargo final de membro.');
+            for (const [roleId, label] of [
+                [config.partnership_role_id, 'parceria'],
+                [config.war_role_id, 'guerra']
+            ]) {
+                if (!roleId) continue;
+                const approvalRole = await interaction.guild.roles.fetch(roleId).catch(() => null);
+                if (!approvalRole || approvalRole.id === interaction.guild.roles.everyone.id || approvalRole.managed) {
+                    errors.push(`O cargo de ${label} configurado é inválido ou gerenciado por integração.`);
+                } else if (botMember && botMember.roles.highest.position <= approvalRole.position) {
+                    errors.push(`O cargo mais alto da Kaori precisa ficar acima do cargo de ${label}.`);
+                }
+            }
             if (config.pending_role_id) {
                 const pendingRole = await interaction.guild.roles.fetch(config.pending_role_id).catch(() => null);
                 if (!pendingRole || pendingRole.id === interaction.guild.roles.everyone.id || pendingRole.managed) errors.push('Cargo provisório inválido ou gerenciado por integração.');
                 else if (botMember && botMember.roles.highest.position <= pendingRole.position) errors.push('O cargo mais alto da Kaori precisa ficar acima do cargo provisório.');
                 if (pendingRole && memberRole && pendingRole.id === memberRole.id) errors.push('O cargo provisório precisa ser diferente do cargo final.');
             }
-            for (const [channel, label] of [[panelChannel, 'painel'], [acceptanceChannel, 'aceitação'], [welcomeChannel, 'conversa']]) {
+            for (const [channel, label] of [
+                [panelChannel, 'painel'],
+                [acceptanceChannel, 'aceitação'],
+                [welcomeChannel, 'conversa'],
+                [announcementsChannel, 'anúncios']
+            ]) {
                 if (!channel || !botMember) continue;
                 const perms = channel.permissionsFor(botMember);
                 if (!perms?.has(PermissionFlagsBits.ViewChannel)) errors.push(`A Kaori precisa de Ver Canal em #${label}.`);
                 if (!perms?.has(PermissionFlagsBits.SendMessages)) errors.push(`A Kaori precisa de Enviar Mensagens em #${label}.`);
-                if ((channel === panelChannel || channel === acceptanceChannel) && !perms?.has(PermissionFlagsBits.EmbedLinks)) {
+                if ([panelChannel, acceptanceChannel, announcementsChannel].includes(channel) && !perms?.has(PermissionFlagsBits.EmbedLinks)) {
                     errors.push(`A Kaori precisa de Inserir Links em #${label} para publicar embeds.`);
                 }
             }
