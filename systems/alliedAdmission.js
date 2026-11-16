@@ -436,7 +436,7 @@ function truncate(value, max = 1024) {
 function announcementText(value, maxLength = 900, fallback = 'Não informado') {
     const text = String(value ?? '').trim();
     if (!text) return fallback;
-    return truncate(text, maxLength).replace(/@/g, '@\\u200b');
+    return truncate(text, maxLength).replace(/@/g, '@' + String.fromCharCode(8203));
 }
 
 function readApplicationAnswers(application) {
@@ -538,7 +538,7 @@ function buildApplicationCard(application, kind, answers, config) {
             .setStyle(ButtonStyle.Success)
         : new ButtonBuilder()
             .setCustomId(`admission:resolve:${application.id}`)
-            .setLabel(kind === 'partnership' ? 'Confirmar parceria' : 'Registrar resolução')
+            .setLabel(kind === 'partnership' ? 'Confirmar parceria' : 'Confirmar guerra')
             .setStyle(ButtonStyle.Success);
 
     const actionButtons = [
