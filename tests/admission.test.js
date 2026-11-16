@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateAdmissionQuestions, parseAdmissionColor, buildAdmissionPanelPayload, buildAdmissionWelcomeMessage, buildAdmissionRejectionMessage, isServerTagRoleConflict } from '../systems/alliedAdmission.js';
+import { validateAdmissionQuestions, parseAdmissionColor, buildAdmissionPanelPayload, buildAdmissionWelcomeMessage, buildAdmissionRejectionMessage, isServerTagRoleConflict, buildAdmissionAcceptanceAnnouncement, getAdmissionApprovalRoleId } from '../systems/alliedAdmission.js';
 import { buildEmbedMessagePayload, parseEmbedJson } from '../systems/alliedEmbed.js';
 
 test('admission questions enforce Discord modal limits', () => {
@@ -88,4 +88,67 @@ test('server tag role must differ from the final Allied member role', () => {
     assert.equal(isServerTagRoleConflict('123', '456'), false);
     assert.equal(isServerTagRoleConflict('123', null), false);
     assert.equal(isServerTagRoleConflict(null, '123'), false);
+});
+
+test('partnership approval announcement includes the partner, representative, proposal and a safe invite link', () => {
+    const payload = buildAdmissionAcceptanceAnnouncement({
+        application_type: 'partnership',
+        display_name: 'Comunidade Aurora',
+        answers: {
+            server_name: 'Aurora',
+            representative: 'Líder Aurora',
+            proposal: 'Cooperação entre comunidades.',
+            server_link: 'https://discord.gg/aurora'
+        }
+    });
+
+    assert.deepEqual(payload.allowedMentions.parse, []);
+    assert.equal(payload.embeds.length, 1);
+    const embed = payload.embeds[0].toJSON();
+    assert.equal(embed.title, '✦ NOVA PARCERIA');
+    assert.match(embed.description, /Aurora/);
+    assert.equal(embed.fields.find((field) => field.name === 'Comunidade parceira').value, 'Aurora');
+    assert.equal(embed.fields.find((field) => field.name === 'Proposta').value, 'Cooperação entre comunidades.');
+    assert.equal(embed.fields.find((field) => field.name === 'Convite / site').value, '<https://discord.gg/aurora>');
+});
+
+test('war approval announcement includes the opponent, reason and call to confrontation without triggering mass mentions', () => {
+    const payload = buildAdmissionAcceptanceAnnouncement({
+        application_type: 'war',
+        display_name: 'Clã rival',
+        answers: {
+            organization: 'Clã rival',
+            representative: 'Representante',
+            reason: 'Ofensas e ataques contra membros da Allied.',
+            evidence: 'https://example.com/evidencias',
+            expectation: 'Resolver o conflito em confronto organizado.'
+        }
+    });
+
+    assert.deepEqual(payload.allowedMentions.parse, []);
+    const embed = payload.embeds[0].toJSON();
+    assert.equal(embed.title, '✦ GUERRA CONFIRMADA');
+    assert.match(embed.description, /O confronto está lançado/);
+    assert.equal(embed.fields.find((field) => field.name === 'Contra quem').value, 'Clã rival');
+    assert.equal(embed.fields.find((field) => field.name === 'Motivo da guerra').value, 'Ofensas e ataques contra membros da Allied.');
+    assert.equal(embed.fields.find((field) => field.name === 'Registros / provas').value, '<https://example.com/evidencias>');
+});
+
+test('announcement text neutralizes mass mentions and invalid application types cannot create an announcement', () => {
+    const payload = buildAdmissionAcceptanceAnnouncement({
+        application_type: 'war',
+        answers: { organization: '@everyone', reason: '@here' }
+    });
+    const embed = payload.embeds[0].toJSON();
+    assert.equal(embed.fields.find((field) => field.name === 'Contra quem').value.includes('@everyone'), false);
+    assert.equal(embed.fields.find((field) => field.name === 'Motivo da guerra').value.includes('@here'), false);
+    assert.throws(() => buildAdmissionAcceptanceAnnouncement({ application_type: 'entry', answers: {} }), /Somente parcerias e guerras/);
+});
+
+test('partnership and war approvals map to their own configured roles only', () => {
+    const config = { partnership_role_id: '11111111111111111', war_role_id: '22222222222222222' };
+    assert.equal(getAdmissionApprovalRoleId(config, 'partnership'), '11111111111111111');
+    assert.equal(getAdmissionApprovalRoleId(config, 'war'), '22222222222222222');
+    assert.equal(getAdmissionApprovalRoleId(config, 'entry'), null);
+    assert.equal(getAdmissionApprovalRoleId({}, 'partnership'), null);
 });

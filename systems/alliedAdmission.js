@@ -54,10 +54,13 @@ export const ADMISSION_DEFAULTS = Object.freeze({
     panel_message_id: null,
     acceptance_channel_id: null,
     welcome_channel_id: null,
+    announcements_channel_id: null,
     ticket_category_id: null,
     log_channel_id: null,
     member_role_id: '1524393369835671663',
     pending_role_id: null,
+    partnership_role_id: null,
+    war_role_id: null,
     staff_role_ids: [],
     panel_content: '',
     panel_title: '✦ ALLIED | ADMISSÃO ✦',
@@ -101,8 +104,8 @@ export function isServerTagRoleConflict(memberRoleId, serverTagRoleId) {
 }
 
 const CONFIG_COLUMNS = new Set([
-    'enabled', 'panel_channel_id', 'panel_message_id', 'acceptance_channel_id', 'welcome_channel_id', 'ticket_category_id', 'log_channel_id',
-    'member_role_id', 'pending_role_id', 'staff_role_ids', 'panel_content', 'panel_title',
+    'enabled', 'panel_channel_id', 'panel_message_id', 'acceptance_channel_id', 'welcome_channel_id', 'announcements_channel_id', 'ticket_category_id', 'log_channel_id',
+    'member_role_id', 'pending_role_id', 'partnership_role_id', 'war_role_id', 'staff_role_ids', 'panel_content', 'panel_title',
     'panel_description', 'panel_color', 'panel_author', 'panel_author_icon_url',
     'panel_thumbnail_url', 'panel_image_url', 'panel_footer_text', 'panel_footer_icon_url',
     'panel_timestamp', 'panel_fields', 'form_questions'
@@ -172,10 +175,13 @@ export async function ensureAdmissionSchema() {
             panel_message_id TEXT,
             acceptance_channel_id TEXT,
             welcome_channel_id TEXT,
+            announcements_channel_id TEXT,
             ticket_category_id TEXT,
             log_channel_id TEXT,
             member_role_id TEXT,
             pending_role_id TEXT,
+            partnership_role_id TEXT,
+            war_role_id TEXT,
             staff_role_ids TEXT[] NOT NULL DEFAULT '{}',
             panel_content TEXT NOT NULL DEFAULT '',
             panel_title TEXT NOT NULL DEFAULT 'ALLIED | ADMISSÃO',
@@ -196,6 +202,9 @@ export async function ensureAdmissionSchema() {
         ALTER TABLE allied_admission_config ADD COLUMN IF NOT EXISTS panel_fields JSONB NOT NULL DEFAULT '[]'::jsonb;
         ALTER TABLE allied_admission_config ADD COLUMN IF NOT EXISTS acceptance_channel_id TEXT;
         ALTER TABLE allied_admission_config ADD COLUMN IF NOT EXISTS welcome_channel_id TEXT;
+        ALTER TABLE allied_admission_config ADD COLUMN IF NOT EXISTS announcements_channel_id TEXT;
+        ALTER TABLE allied_admission_config ADD COLUMN IF NOT EXISTS partnership_role_id TEXT;
+        ALTER TABLE allied_admission_config ADD COLUMN IF NOT EXISTS war_role_id TEXT;
 
         CREATE TABLE IF NOT EXISTS allied_admission_applications (
             id BIGSERIAL PRIMARY KEY,
@@ -424,6 +433,82 @@ function truncate(value, max = 1024) {
     return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+function announcementText(value, maxLength = 900, fallback = 'Não informado') {
+    const text = String(value ?? '').trim();
+    if (!text) return fallback;
+    return truncate(text, maxLength).replace(/@/g, '@' + String.fromCharCode(8203));
+}
+
+function readApplicationAnswers(application) {
+    if (application?.answers && typeof application.answers === 'object') return application.answers;
+    if (typeof application?.answers === 'string') {
+        try {
+            const parsed = JSON.parse(application.answers);
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+    return {};
+}
+
+export function getAdmissionApprovalRoleId(config, applicationType) {
+    if (applicationType === 'partnership') return config?.partnership_role_id || null;
+    if (applicationType === 'war') return config?.war_role_id || null;
+    return null;
+}
+
+export function buildAdmissionAcceptanceAnnouncement(application) {
+    const answers = readApplicationAnswers(application);
+    if (application?.application_type === 'partnership') {
+        const community = announcementText(answers.server_name || application.display_name, 180, 'Comunidade parceira');
+        const embed = new EmbedBuilder()
+            .setColor(CARMINE)
+            .setAuthor({ name: 'ALLIED · RELAÇÕES DIPLOMÁTICAS' })
+            .setTitle('✦ NOVA PARCERIA')
+            .setDescription(
+                `A Allied anuncia oficialmente sua parceria com **${community}**.\n\nQue esta união seja marcada por respeito, colaboração e crescimento mútuo. Desejamos sucesso às duas comunidades e uma excelente trajetória conjunta!`
+            )
+            .addFields(
+                { name: 'Comunidade parceira', value: community, inline: true },
+                { name: 'Representante', value: announcementText(answers.representative, 180), inline: true },
+                { name: 'Proposta', value: announcementText(answers.proposal, 900), inline: false }
+            )
+            .setFooter({ text: 'ALLIED · UNIDOS POR NOVAS CONEXÕES' })
+            .setTimestamp();
+
+        const invite = validHttpUrl(answers.server_link, { nullable: false });
+        if (invite) embed.addFields({ name: 'Convite / site', value: `<${invite}>`, inline: false });
+        return { embeds: [embed], allowedMentions: { parse: [] } };
+    }
+
+    if (application?.application_type === 'war') {
+        const opponent = announcementText(answers.organization || application.display_name, 180, 'Organização adversária');
+        const reason = announcementText(answers.reason, 900, 'O motivo não foi informado.');
+        const embed = new EmbedBuilder()
+            .setColor(CARMINE)
+            .setAuthor({ name: 'ALLIED · COMUNICADO OFICIAL' })
+            .setTitle('✦ GUERRA CONFIRMADA')
+            .setDescription(
+                `A Allied confirma oficialmente o confronto contra **${opponent}**.\n\nA decisão foi tomada após a análise do contexto apresentado. Membros da Allied: mantenham a disciplina, sigam as orientações da liderança e preparem-se para representar nossa equipe. **O confronto está lançado.**`
+            )
+            .addFields(
+                { name: 'Contra quem', value: opponent, inline: true },
+                { name: 'Representante', value: announcementText(answers.representative, 180), inline: true },
+                { name: 'Motivo da guerra', value: reason, inline: false },
+                { name: 'Objetivo do confronto', value: announcementText(answers.expectation, 700), inline: false }
+            )
+            .setFooter({ text: 'ALLIED · ORGANIZAÇÃO, DISCIPLINA E UNIÃO' })
+            .setTimestamp();
+
+        const evidence = validHttpUrl(answers.evidence, { nullable: false });
+        if (evidence) embed.addFields({ name: 'Registros / provas', value: `<${evidence}>`, inline: false });
+        return { embeds: [embed], allowedMentions: { parse: [] } };
+    }
+
+    throw new Error('Somente parcerias e guerras podem gerar comunicados de aceitação.');
+}
+
 function canReview(member, config) {
     if (member.permissions?.has(PermissionFlagsBits.Administrator)) return true;
     return (config.staff_role_ids || []).some((roleId) => member.roles?.cache?.has(roleId));
@@ -453,7 +538,7 @@ function buildApplicationCard(application, kind, answers, config) {
             .setStyle(ButtonStyle.Success)
         : new ButtonBuilder()
             .setCustomId(`admission:resolve:${application.id}`)
-            .setLabel(kind === 'partnership' ? 'Confirmar parceria' : 'Registrar resolução')
+            .setLabel(kind === 'partnership' ? 'Confirmar parceria' : 'Confirmar guerra')
             .setStyle(ButtonStyle.Success);
 
     const actionButtons = [
@@ -498,7 +583,7 @@ async function setApplicationStatus(id, guildId, status, reviewerId = null, revi
     return pool.query(
         `UPDATE allied_admission_applications
          SET status = $3, reviewer_id = COALESCE($4, reviewer_id), review_note = COALESCE($5, review_note),
-             reviewed_at = CASE WHEN $3 IN ('approved', 'rejected', 'accepted', 'closed') THEN NOW() ELSE reviewed_at END,
+             reviewed_at = CASE WHEN $3 IN ('approved', 'rejected', 'accepted', 'closed', 'cancelled') THEN NOW() ELSE reviewed_at END,
              updated_at = NOW()
          WHERE id = $1 AND guild_id = $2`,
         [id, guildId, status, reviewerId, reviewNote]
@@ -951,15 +1036,102 @@ async function handleReviewAction(interaction, action, id) {
             await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
             return interaction.editReply({ content: 'Solicitações de entrada precisam da ação específica de aprovação.' });
         }
-        await setApplicationStatus(id, interaction.guildId, 'accepted', interaction.user.id);
-        const label = application.application_type === 'partnership' ? 'parceria confirmada' : 'contato de guerra/resolução registrado';
+
+        const roleConfigName = application.application_type === 'partnership' ? 'cargo_parceria' : 'cargo_guerra';
+        const roleId = getAdmissionApprovalRoleId(config, application.application_type);
+        if (!roleId) {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
+            return interaction.editReply({
+                content: `Configure o cargo correspondente em \`/allied-admission configurar ${roleConfigName}:@cargo\` antes de aceitar esta solicitação.`
+            });
+        }
+
+        const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+        if (!role || role.id === interaction.guild.roles.everyone.id || role.managed) {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
+            return interaction.editReply({ content: `O cargo configurado para ${ADMISSION_TYPES[application.application_type]} não existe ou não pode ser atribuído. Confira \`/allied-admission configurar\`.` });
+        }
+
+        const botMember = interaction.guild.members.me || await interaction.guild.members.fetch(interaction.client.user.id).catch(() => null);
+        if (!botMember?.permissions?.has(PermissionFlagsBits.ManageRoles) || botMember.roles.highest.position <= role.position) {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
+            return interaction.editReply({ content: `A Kaori precisa de Gerenciar Cargos e estar acima de ${role} na hierarquia.` });
+        }
+
+        if (!config.announcements_channel_id) {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
+            return interaction.editReply({ content: 'Configure o canal de anúncios com \`/allied-admission configurar canal_anuncios:#anúncios\` antes de aceitar esta solicitação.' });
+        }
+
+        const announcementsChannel = await interaction.guild.channels.fetch(config.announcements_channel_id).catch(() => null);
+        if (!announcementsChannel?.isTextBased() || !announcementsChannel.send) {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
+            return interaction.editReply({ content: 'O canal de anúncios configurado não existe ou não é um canal de texto. Confira /allied-admission configurar.' });
+        }
+
+        const announcementPermissions = announcementsChannel.permissionsFor(botMember);
+        if (
+            !announcementPermissions?.has(PermissionFlagsBits.ViewChannel)
+            || !announcementPermissions?.has(PermissionFlagsBits.SendMessages)
+            || !announcementPermissions?.has(PermissionFlagsBits.EmbedLinks)
+        ) {
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch(() => {});
+            return interaction.editReply({ content: 'A Kaori precisa de Ver Canal, Enviar Mensagens e Inserir Links no canal de anúncios.' });
+        }
+
+        const member = await interaction.guild.members.fetch(application.user_id).catch(() => null);
+        if (!member) {
+            await setApplicationStatus(id, interaction.guildId, 'cancelled', interaction.user.id, 'Solicitante não está mais no servidor.');
+            await interaction.message.edit({ components: [] }).catch(() => {});
+            return interaction.editReply({ content: 'O solicitante saiu do servidor. A solicitação foi cancelada e nenhum cargo foi atribuído.' });
+        }
+
+        let roleWasAdded = false;
+        let announcementMessage = null;
+        try {
+            if (!member.roles.cache.has(role.id)) {
+                await member.roles.add(role, `Solicitação de ${ADMISSION_TYPES[application.application_type]} aprovada por ${interaction.user.tag}`);
+                roleWasAdded = true;
+            }
+
+            announcementMessage = await announcementsChannel.send(
+                buildAdmissionAcceptanceAnnouncement(application)
+            );
+
+            const statusUpdate = await setApplicationStatus(id, interaction.guildId, 'accepted', interaction.user.id);
+            if (statusUpdate.rowCount !== 1) throw new Error('Não consegui registrar a aceitação no PostgreSQL.');
+        } catch (error) {
+            if (announcementMessage) {
+                await announcementMessage.delete('Reversão: a aceitação não pôde ser registrada').catch((deleteError) => {
+                    console.error('[AlliedAdmission] announcement rollback failed:', deleteError.message);
+                });
+            }
+            if (roleWasAdded) {
+                await member.roles.remove(role, 'Reversão: a aceitação não pôde ser registrada').catch((rollbackError) => {
+                    console.error('[AlliedAdmission] accepted role rollback failed:', rollbackError.message);
+                });
+            }
+            await setApplicationStatus(id, interaction.guildId, previousStatus).catch((statusError) => {
+                console.error('[AlliedAdmission] failed to release review claim:', statusError.message);
+            });
+            console.error('[AlliedAdmission] partnership/war acceptance:', error);
+            return interaction.editReply({
+                content: `Não consegui concluir a aceitação. Confira as permissões da Kaori, a hierarquia de cargos e a conexão com o PostgreSQL. (${truncate(error.message, 160)})`
+            });
+        }
+
+        const label = application.application_type === 'partnership' ? 'parceria confirmada' : 'guerra confirmada';
         await reviewChannel.send({
-            content: `A equipe marcou esta solicitação como **${label}**. Nenhum cargo de membro foi concedido por esta ação.`
+            content: `A ${label} foi aprovada por ${interaction.user}. O cargo ${role} foi concedido a <@${member.id}> e o comunicado foi publicado em ${announcementsChannel}.`,
+            allowedMentions: { parse: [] }
         }).catch((sendError) => console.error('[AlliedAdmission] resolution notice:', sendError));
         await interaction.message.edit({ components: [new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`admission:close:${id}`).setLabel('Encerrar atendimento').setStyle(ButtonStyle.Secondary)
         )] }).catch(() => {});
-        return interaction.editReply({ content: 'Solicitação registrada como concluída. Nenhum cargo foi alterado.' });
+        return interaction.editReply({
+            content: `Solicitação aceita. ${member} recebeu ${role} e o comunicado foi publicado em ${announcementsChannel}.`,
+            allowedMentions: { parse: [] }
+        });
     }
 
     if (action === 'info') {
