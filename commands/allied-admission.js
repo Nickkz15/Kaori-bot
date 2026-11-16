@@ -159,7 +159,7 @@ export async function executeAlliedAdmission(interaction) {
         }
         for (const [role, label] of [[partnershipRole, 'parceria'], [warRole, 'guerra']]) {
             if (role && (role.id === interaction.guild.roles.everyone.id || role.managed)) {
-                return interaction.reply({ content: `O cargo de ${label} precisa ser um cargo comum, não gerenciado e diferente de `@everyone`.`, ephemeral: true });
+                return interaction.reply({ content: `O cargo de ${label} precisa ser um cargo comum, não gerenciado e diferente de @everyone.`, ephemeral: true });
             }
         }
         if (memberRole) patch.member_role_id = memberRole.id;
