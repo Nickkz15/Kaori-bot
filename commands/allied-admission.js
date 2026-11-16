@@ -58,11 +58,20 @@ export const alliedAdmissionCommand = new SlashCommandBuilder()
             .addChannelOption((o) =>
                 o.setName('canal_conversa').setDescription('Canal onde novos membros recebem as boas-vindas após aprovação').addChannelTypes(ChannelType.GuildText)
             )
+            .addChannelOption((o) =>
+                o.setName('canal_anuncios').setDescription('Canal público para comunicados de guerra e parceria aprovados').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            )
             .addRoleOption((o) =>
                 o.setName('cargo_membro').setDescription('Cargo concedido somente após aprovação da equipe')
             )
             .addRoleOption((o) =>
                 o.setName('cargo_provisorio').setDescription('Cargo temporário opcional atribuído ao enviar candidatura; deve ter acesso limitado')
+            )
+            .addRoleOption((o) =>
+                o.setName('cargo_parceria').setDescription('Cargo concedido quando uma parceria for aceita')
+            )
+            .addRoleOption((o) =>
+                o.setName('cargo_guerra').setDescription('Cargo concedido quando uma guerra for aceita')
             )
             .addRoleOption((o) =>
                 o.setName('cargo_equipe').setDescription('Cargo autorizado a revisar solicitações')
@@ -130,22 +139,33 @@ export async function executeAlliedAdmission(interaction) {
         const logs = interaction.options.getChannel('canal_logs');
         const acceptance = interaction.options.getChannel('canal_aceitacao');
         const welcome = interaction.options.getChannel('canal_conversa');
+        const announcements = interaction.options.getChannel('canal_anuncios');
         const memberRole = interaction.options.getRole('cargo_membro');
         const pendingRole = interaction.options.getRole('cargo_provisorio');
+        const partnershipRole = interaction.options.getRole('cargo_parceria');
+        const warRole = interaction.options.getRole('cargo_guerra');
         const staffRole = interaction.options.getRole('cargo_equipe');
         if (panel) patch.panel_channel_id = panel.id;
         if (category) patch.ticket_category_id = category.id;
         if (logs) patch.log_channel_id = logs.id;
         if (acceptance) patch.acceptance_channel_id = acceptance.id;
         if (welcome) patch.welcome_channel_id = welcome.id;
+        if (announcements) patch.announcements_channel_id = announcements.id;
         if (memberRole && memberRole.id === interaction.guild.roles.everyone.id) {
             return interaction.reply({ content: 'O cargo de membro não pode ser `@everyone`.', ephemeral: true });
         }
         if (pendingRole && pendingRole.id === interaction.guild.roles.everyone.id) {
             return interaction.reply({ content: 'O cargo provisório não pode ser `@everyone`.', ephemeral: true });
         }
+        for (const [role, label] of [[partnershipRole, 'parceria'], [warRole, 'guerra']]) {
+            if (role && (role.id === interaction.guild.roles.everyone.id || role.managed)) {
+                return interaction.reply({ content: `O cargo de ${label} precisa ser um cargo comum, não gerenciado e diferente de `@everyone`.`, ephemeral: true });
+            }
+        }
         if (memberRole) patch.member_role_id = memberRole.id;
         if (pendingRole) patch.pending_role_id = pendingRole.id;
+        if (partnershipRole) patch.partnership_role_id = partnershipRole.id;
+        if (warRole) patch.war_role_id = warRole.id;
         if (staffRole) {
             if (staffRole.id === interaction.guild.roles.everyone.id || staffRole.managed) {
                 return interaction.reply({ content: '`@everyone` não pode ser um cargo de revisão.', ephemeral: true });
@@ -164,7 +184,7 @@ export async function executeAlliedAdmission(interaction) {
         }
         const config = await updateAdmissionConfig(guildId, patch);
         return interaction.reply({
-            content: `Configuração salva.\nPainel: ${config.panel_channel_id ? `<#${config.panel_channel_id}>` : 'não definido'}\nCanal de aceitação: ${config.acceptance_channel_id ? `<#${config.acceptance_channel_id}>` : 'não definido'}\nCanal de conversa: ${config.welcome_channel_id ? `<#${config.welcome_channel_id}>` : 'não definido'}\nCategoria: ${config.ticket_category_id ? `<#${config.ticket_category_id}>` : 'não definida'}\nCargo final: ${config.member_role_id ? `<@&${config.member_role_id}>` : 'não definido'}\nEquipe: ${config.staff_role_ids.length ? config.staff_role_ids.map((id) => `<@&${id}>`).join(', ') : 'nenhum cargo configurado'}`,
+            content: `Configuração salva.\nPainel: ${config.panel_channel_id ? `<#${config.panel_channel_id}>` : 'não definido'}\nCanal de aceitação: ${config.acceptance_channel_id ? `<#${config.acceptance_channel_id}>` : 'não definido'}\nCanal de conversa: ${config.welcome_channel_id ? `<#${config.welcome_channel_id}>` : 'não definido'}\nCanal de anúncios: ${config.announcements_channel_id ? `<#${config.announcements_channel_id}>` : 'não definido'}\nCategoria: ${config.ticket_category_id ? `<#${config.ticket_category_id}>` : 'não definida'}\nCargo final: ${config.member_role_id ? `<@&${config.member_role_id}>` : 'não definido'}\nCargo de parceria: ${config.partnership_role_id ? `<@&${config.partnership_role_id}>` : 'não definido'}\nCargo de guerra: ${config.war_role_id ? `<@&${config.war_role_id}>` : 'não definido'}\nEquipe: ${config.staff_role_ids.length ? config.staff_role_ids.map((id) => `<@&${id}>`).join(', ') : 'nenhum cargo configurado'}`,
             ephemeral: true,
             allowedMentions: { parse: [] }
         });
@@ -343,9 +363,12 @@ ${errors.map((error) => `• ${error}`).join('\n')}`, ephemeral: true });
             { name: 'Categoria dos tickets', value: channel(config.ticket_category_id), inline: true },
             { name: 'Canal de aceitação', value: channel(config.acceptance_channel_id), inline: true },
             { name: 'Canal de conversa', value: channel(config.welcome_channel_id), inline: true },
+            { name: 'Canal de anúncios', value: channel(config.announcements_channel_id), inline: true },
             { name: 'Canal de logs', value: channel(config.log_channel_id), inline: true },
             { name: 'Cargo final', value: role(config.member_role_id), inline: true },
             { name: 'Cargo provisório', value: role(config.pending_role_id), inline: true },
+            { name: 'Cargo de parceria', value: role(config.partnership_role_id), inline: true },
+            { name: 'Cargo de guerra', value: role(config.war_role_id), inline: true },
             { name: 'Equipe de revisão', value: config.staff_role_ids.length ? config.staff_role_ids.map(role).join('\n') : 'Nenhum cargo configurado', inline: false },
             { name: 'Formulários', value: Object.entries(ADMISSION_TYPES).map(([key, name]) => `${name}: **${(config.form_questions[key] || DEFAULT_QUESTIONS[key]).length}** perguntas`).join('\n') }
         )
