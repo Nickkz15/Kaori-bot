@@ -436,9 +436,7 @@ function truncate(value, max = 1024) {
 function announcementText(value, maxLength = 900, fallback = 'Não informado') {
     const text = String(value ?? '').trim();
     if (!text) return fallback;
-    return truncate(text, maxLength)
-        .replace(/@/g, '@\\u200b')
-        .replace(/([\\\\\x60*_{}\\[\\]()#+.!|>])/g, '\\\\$1');
+    return truncate(text, maxLength).replace(/@/g, '@\\u200b');
 }
 
 function readApplicationAnswers(application) {
@@ -469,7 +467,7 @@ export function buildAdmissionAcceptanceAnnouncement(application) {
             .setAuthor({ name: 'ALLIED · RELAÇÕES DIPLOMÁTICAS' })
             .setTitle('✦ NOVA PARCERIA')
             .setDescription(
-                `A Allied anuncia oficialmente sua parceria com **${community}**.\\n\\nQue esta união seja marcada por respeito, colaboração e crescimento mútuo. Desejamos sucesso às duas comunidades e uma excelente trajetória conjunta!`
+                `A Allied anuncia oficialmente sua parceria com **${community}**.\n\nQue esta união seja marcada por respeito, colaboração e crescimento mútuo. Desejamos sucesso às duas comunidades e uma excelente trajetória conjunta!`
             )
             .addFields(
                 { name: 'Comunidade parceira', value: community, inline: true },
@@ -492,7 +490,7 @@ export function buildAdmissionAcceptanceAnnouncement(application) {
             .setAuthor({ name: 'ALLIED · COMUNICADO OFICIAL' })
             .setTitle('✦ GUERRA CONFIRMADA')
             .setDescription(
-                `A Allied confirma oficialmente o confronto contra **${opponent}**.\\n\\nA decisão foi tomada após a análise do contexto apresentado. Membros da Allied: mantenham a disciplina, sigam as orientações da liderança e preparem-se para representar nossa equipe. **O confronto está lançado.**`
+                `A Allied confirma oficialmente o confronto contra **${opponent}**.\n\nA decisão foi tomada após a análise do contexto apresentado. Membros da Allied: mantenham a disciplina, sigam as orientações da liderança e preparem-se para representar nossa equipe. **O confronto está lançado.**`
             )
             .addFields(
                 { name: 'Contra quem', value: opponent, inline: true },
