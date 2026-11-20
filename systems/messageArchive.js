@@ -419,8 +419,9 @@ async function copyAttachment(attachment, identity, capturedAt, currentTotal) {
         const safeName = String(metadata.filename || metadata.id || 'attachment')
             .replace(/[^a-z0-9._-]/gi, '_').slice(0, 80);
         const storageKey = 'attachments/' + identity.guildId + '/' + date.year + '/' + date.month +
-            '/' + date.day + '/' + identity.messageId + '/' +
-            String(metadata.id || randomBytes(6).toString('hex')) + '_' + safeName + '.bin';
+            '/' + date.day + '/' + sha256(identity.messageId) + '/' +
+            Date.parse(capturedAt) + '_' + randomBytes(4).toString('hex') + '_' +
+            String(metadata.id || 'file') + '_' + safeName + '.bin';
         await runtime.store.putObject(storageKey, encryptArchiveBuffer(bytes, runtime.encryptionKey));
         metadata.archived = true;
         metadata.storageKey = storageKey;
@@ -480,7 +481,16 @@ async function makeSnapshot(message, options) {
         embeds: Array.from(message.embeds?.values?.() || []).map(safeJson),
         components: Array.from(message.components || []).map(safeJson),
         stickers: Array.from(message.stickers?.values?.() || []).map(safeJson),
+        reactions: Array.from(message.reactions?.cache?.values?.() || []).map(function (reaction) {
+            return {
+                emoji: reaction.emoji?.name || null,
+                emojiId: reaction.emoji?.id || null,
+                count: Number(reaction.count) || 0,
+                me: reaction.me === true
+            };
+        }),
         poll: safeJson(message.poll),
+        messageType: message.type ?? null,
         attachments: attachments,
         reference: message.reference ? {
             messageId: message.reference.messageId || null,
@@ -703,6 +713,7 @@ export async function initMessageArchive(client) {
         runtime.store = new R2ObjectStore(environment);
         runtime.encryptionKey = environment.encryptionKey;
         runtime.ownerId = environment.ownerId;
+        await runtime.store.listObjects('config/' + String(GUILD_ID) + '.bin');
         runtime.config = await readArchiveConfig();
         runtime.enabled = runtime.config.enabled === true;
         return { ready: true, enabled: runtime.enabled, retentionDays: RETENTION_DAYS, encrypted: true };
@@ -878,4 +889,14 @@ export async function getMessageArchiveHistory(messageId) {
         if (record) history.push({ key: key, record: record });
     }
     return history;
+}
+
+
+export async function getArchivedAttachment(storageKey) {
+    if (!runtime.store || !runtime.encryptionKey) throw new Error('O armazenamento privado não está disponível.');
+    const prefix = 'attachments/' + runtime.guildId + '/';
+    if (typeof storageKey !== 'string' || !storageKey.startsWith(prefix) || storageKey.includes('..')) {
+        throw new Error('Referência de anexo inválida.');
+    }
+    return decryptArchiveBuffer(await runtime.store.getObject(storageKey), runtime.encryptionKey);
 }
