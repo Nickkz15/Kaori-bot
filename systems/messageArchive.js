@@ -127,12 +127,16 @@ function getStorageEnvironment() {
         'ARCHIVE_R2_ACCESS_KEY_ID',
         'ARCHIVE_R2_SECRET_ACCESS_KEY',
         'ARCHIVE_ENCRYPTION_KEY',
-        'ARCHIVE_OWNER_ID'
+        'ARCHIVE_OWNER_ID',
+        'ARCHIVE_RETENTION_CONFIRMED'
     ];
     const missing = required.filter(function (key) {
         return !String(process.env[key] || '').trim();
     });
     if (!GUILD_ID) missing.push('GUILD_ID');
+    if (String(process.env.ARCHIVE_RETENTION_CONFIRMED || '') !== '90_DAYS') {
+        missing.push('ARCHIVE_RETENTION_CONFIRMED=90_DAYS (confirme após configurar a regra de expiração no R2)');
+    }
 
     if (missing.length) return { ready: false, missing: missing };
 
@@ -279,8 +283,9 @@ function makeEventObjectKey(guildId, channelId, authorId, messageId, eventType, 
     const safeType = String(eventType).replace(/[^a-z_]/gi, '');
     const nonce = randomBytes(4).toString('hex');
     return 'events/' + guildId + '/' + date.year + '/' + date.month + '/' + date.day +
-        '/' + (channelId || 'unknown') + '/' + (authorId || 'unknown') +
-        '/' + Date.parse(capturedAt) + '_' + messageId + '_' + safeType + '_' + nonce + '.bin';
+        '/' + sha256(channelId || 'unknown').slice(0, 20) + '/' +
+        sha256(authorId || 'unknown').slice(0, 20) + '/' +
+        Date.parse(capturedAt) + '_' + sha256(messageId).slice(0, 24) + '_' + safeType + '_' + nonce + '.bin';
 }
 
 export function buildMessageArchiveObjectKey(input) {
@@ -504,7 +509,7 @@ async function writeJsonObject(key, value) {
 }
 
 async function updateMessageIndex(identity, recordKey, eventType, capturedAt) {
-    const indexKey = 'message-index/' + identity.guildId + '/' + identity.messageId + '.bin';
+    const indexKey = 'message-index/' + identity.guildId + '/' + sha256(identity.messageId) + '.bin';
     const current = await readJsonObject(indexKey);
     const eventKeys = Array.isArray(current?.eventKeys) ? current.eventKeys.slice(-MAX_HISTORY_EVENTS + 1) : [];
     eventKeys.push(recordKey);
@@ -822,12 +827,10 @@ export async function searchMessageArchive(options) {
     const term = String(options.term || '').trim().toLocaleLowerCase('pt-BR');
     const eventType = options.eventType || 'all';
     const prefixes = getRecentDatePrefixes(runtime.guildId, days).map(function (prefix) {
-        if (channelId) return prefix + channelId + '/';
         return prefix;
     });
     const collected = await collectArchiveObjects(prefixes, MAX_SEARCH_OBJECTS);
     const candidates = collected.objects.filter(function (object) {
-        if (authorId && !object.key.includes('/' + authorId + '/')) return false;
         if (eventType !== 'all' && !object.key.includes('_' + eventType + '_')) return false;
         return true;
     });
@@ -847,6 +850,8 @@ export async function searchMessageArchive(options) {
             continue;
         }
         if (!record) continue;
+        if (authorId && record.authorId !== authorId) continue;
+        if (channelId && record.channelId !== channelId) continue;
         const searchable = [
             record.snapshot?.content,
             record.beforeSnapshot?.content,
@@ -865,7 +870,7 @@ export async function getMessageArchiveHistory(messageId) {
     if (!runtime.store || !runtime.encryptionKey) throw new Error('O armazenamento privado não está disponível.');
     const cleanId = String(messageId || '').trim();
     if (!/^\d{17,20}$/.test(cleanId)) throw new Error('Informe um ID válido de mensagem do Discord.');
-    const index = await readJsonObject('message-index/' + runtime.guildId + '/' + cleanId + '.bin');
+    const index = await readJsonObject('message-index/' + runtime.guildId + '/' + sha256(cleanId) + '.bin');
     if (!index || !Array.isArray(index.eventKeys)) return [];
     const history = [];
     for (const key of index.eventKeys.slice(-20)) {
