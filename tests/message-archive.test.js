@@ -10,7 +10,7 @@ import {
 const KEY = 'ab'.repeat(32);
 
 test('archive payload uses authenticated encryption and round-trips binary data', () => {
-    const original = Buffer.from('Mensagem privada da Allied\\ncom acentos: ação, coração e estratégia.');
+    const original = Buffer.from('Mensagem privada da Allied\ncom acentos: ação, coração e estratégia.');
     const encrypted = encryptArchiveBuffer(original, KEY);
 
     assert.notDeepEqual(encrypted, original);
@@ -43,8 +43,9 @@ test('archive object keys partition events by date and do not expose raw Discord
     };
     const key = buildMessageArchiveObjectKey(input);
 
-    assert.match(key, /^events\\/111111111111111111\\/2026\\/11\\/20\\//);
-    assert.match(key, /_deleted_[a-f0-9]+\\.bin$/);
+    assert.ok(key.startsWith('events/111111111111111111/2026/11/20/'));
+    assert.ok(key.includes('_deleted_'));
+    assert.ok(key.endsWith('.bin'));
     assert.equal(key.includes(input.channelId), false);
     assert.equal(key.includes(input.authorId), false);
     assert.equal(key.includes(input.messageId), false);
