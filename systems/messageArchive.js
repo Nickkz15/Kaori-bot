@@ -528,7 +528,7 @@ async function updateMessageIndex(identity, recordKey, eventType, capturedAt) {
 
 async function getLatestSnapshot(identity) {
     if (!identity.guildId || !identity.messageId) return null;
-    const index = await readJsonObject('message-index/' + identity.guildId + '/' + identity.messageId + '.bin');
+    const index = await readJsonObject('message-index/' + identity.guildId + '/' + sha256(identity.messageId) + '.bin');
     if (!index?.latestRecordKey) return null;
     const record = await readJsonObject(index.latestRecordKey);
     return record?.snapshot || record?.beforeSnapshot || null;
