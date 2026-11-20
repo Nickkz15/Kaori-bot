@@ -320,7 +320,7 @@ export function buildMessageArchiveNoticeEmbed() {
 
 function getMessageIdentity(message) {
     return {
-        guildId: message.guildId || message.guild?.id || '',
+        guildId: message.guildId || message.guild?.id || message.channel?.guildId || '',
         channelId: message.channelId || message.channel?.id || '',
         messageId: message.id || '',
         authorId: message.author?.id || ''
@@ -409,19 +409,17 @@ async function copyAttachment(attachment, identity, capturedAt, currentTotal) {
     }
 
     try {
-        const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        const response = await fetch(url, { signal: AbortSignal.timeout(15000), redirect: 'error' });
         if (!response.ok) throw new Error('download_http_' + response.status);
         const bytes = await readResponseLimited(response, Math.min(
             MAX_ATTACHMENT_BYTES,
             MAX_MESSAGE_ATTACHMENT_BYTES - currentTotal
         ));
         const date = formatDateParts(new Date(capturedAt));
-        const safeName = String(metadata.filename || metadata.id || 'attachment')
-            .replace(/[^a-z0-9._-]/gi, '_').slice(0, 80);
         const storageKey = 'attachments/' + identity.guildId + '/' + date.year + '/' + date.month +
             '/' + date.day + '/' + sha256(identity.messageId) + '/' +
-            Date.parse(capturedAt) + '_' + randomBytes(4).toString('hex') + '_' +
-            String(metadata.id || 'file') + '_' + safeName + '.bin';
+            Date.parse(capturedAt) + '_' + sha256(metadata.id || randomBytes(16).toString('hex')).slice(0, 20) +
+            '_' + randomBytes(4).toString('hex') + '.bin';
         await runtime.store.putObject(storageKey, encryptArchiveBuffer(bytes, runtime.encryptionKey));
         metadata.archived = true;
         metadata.storageKey = storageKey;
@@ -650,9 +648,9 @@ export async function handleArchiveMessageUpdate(before, after) {
 
 export async function handleArchiveMessageDelete(message, bulk) {
     const identity = getMessageIdentity(message);
-    const guildId = identity.guildId || runtime.guildId;
-    if (!runtime.enabled || !runtime.store || !runtime.encryptionKey || guildId !== runtime.guildId || !identity.messageId) return;
-    identity.guildId = guildId;
+    const guildId = identity.guildId;
+    // Never infer the configured server for an unknown channel: delete events may also represent DMs.
+    if (!runtime.enabled || !runtime.store || !runtime.encryptionKey || !guildId || guildId !== runtime.guildId || !identity.messageId) return;
     return withMessageLock(identity.messageId, async function () {
         try {
             let snapshot = await makeSnapshot(message, { copyAttachments: false });
