@@ -895,7 +895,7 @@ export async function getMessageArchiveHistory(messageId) {
 export async function getArchivedAttachment(storageKey) {
     if (!runtime.store || !runtime.encryptionKey) throw new Error('O armazenamento privado não está disponível.');
     const prefix = 'attachments/' + runtime.guildId + '/';
-    if (typeof storageKey !== 'string' || !storageKey.startsWith(prefix) || storageKey.includes('..')) {
+    if (typeof storageKey !== 'string' || !storageKey.startsWith(prefix) || storageKey.split('/').some((part) => part === '..')) {
         throw new Error('Referência de anexo inválida.');
     }
     return decryptArchiveBuffer(await runtime.store.getObject(storageKey), runtime.encryptionKey);
