@@ -61,13 +61,14 @@ function buildCanonicalQuery(query) {
 }
 
 function getEncryptionKey(value) {
-    const raw = String(value || '').trim();
-    let key;
-    if (/^[a-f0-9]{64}$/i.test(raw)) {
-        key = Buffer.from(raw, 'hex');
-    } else {
-        key = Buffer.from(raw, 'base64');
+    if (Buffer.isBuffer(value)) {
+        if (value.length !== 32) throw new Error('A chave de criptografia deve ter 32 bytes.');
+        return value;
     }
+    const raw = String(value || '').trim();
+    const key = /^[a-f0-9]{64}$/i.test(raw)
+        ? Buffer.from(raw, 'hex')
+        : Buffer.from(raw, 'base64');
     if (key.length !== 32) {
         throw new Error('ARCHIVE_ENCRYPTION_KEY precisa conter exatamente 32 bytes em hexadecimal ou Base64.');
     }
@@ -75,8 +76,7 @@ function getEncryptionKey(value) {
 }
 
 export function encryptArchiveBuffer(input, encryptionKey) {
-    const key = Buffer.isBuffer(encryptionKey) ? encryptionKey : getEncryptionKey(encryptionKey);
-    if (key.length !== 32) throw new Error('A chave de criptografia deve ter 32 bytes.');
+    const key = getEncryptionKey(encryptionKey);
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', key, iv);
     const ciphertext = Buffer.concat([cipher.update(Buffer.from(input)), cipher.final()]);
@@ -86,8 +86,7 @@ export function encryptArchiveBuffer(input, encryptionKey) {
 
 export function decryptArchiveBuffer(input, encryptionKey) {
     const data = Buffer.from(input);
-    const key = Buffer.isBuffer(encryptionKey) ? encryptionKey : getEncryptionKey(encryptionKey);
-    if (key.length !== 32) throw new Error('A chave de criptografia deve ter 32 bytes.');
+    const key = getEncryptionKey(encryptionKey);
     if (data.length < 32 || data.subarray(0, 4).toString('ascii') !== 'KAR1') {
         throw new Error('Formato de arquivo Kaori inválido.');
     }
@@ -100,13 +99,11 @@ export function decryptArchiveBuffer(input, encryptionKey) {
 }
 
 function encodeJson(value, key) {
-    const compressed = gzipSync(Buffer.from(JSON.stringify(value), 'utf8'));
-    return encryptArchiveBuffer(compressed, key);
+    return encryptArchiveBuffer(gzipSync(Buffer.from(JSON.stringify(value), 'utf8')), key);
 }
 
 function decodeJson(value, key) {
-    const decrypted = decryptArchiveBuffer(value, key);
-    return JSON.parse(gunzipSync(decrypted).toString('utf8'));
+    return JSON.parse(gunzipSync(decryptArchiveBuffer(value, key)).toString('utf8'));
 }
 
 function decodeXml(value) {
@@ -119,7 +116,7 @@ function decodeXml(value) {
 }
 
 function xmlTag(xml, name) {
-    const match = String(xml || '').match(new RegExp('<' + name + '>([\\\\s\\\\S]*?)</' + name + '>'));
+    const match = String(xml || '').match(new RegExp('<' + name + '>([\\s\\S]*?)</' + name + '>'));
     return match ? decodeXml(match[1]) : '';
 }
 
@@ -137,13 +134,14 @@ function getStorageEnvironment() {
     });
     if (!GUILD_ID) missing.push('GUILD_ID');
 
-    if (missing.length) {
-        return { ready: false, missing: missing };
-    }
+    if (missing.length) return { ready: false, missing: missing };
 
     const endpoint = new URL(process.env.ARCHIVE_R2_ENDPOINT);
     if (endpoint.protocol !== 'https:' || (endpoint.pathname !== '/' && endpoint.pathname !== '')) {
         throw new Error('ARCHIVE_R2_ENDPOINT deve ser a URL HTTPS raiz do endpoint S3 do R2.');
+    }
+    if (!/^\d{17,20}$/.test(String(process.env.ARCHIVE_OWNER_ID).trim())) {
+        throw new Error('ARCHIVE_OWNER_ID deve ser o ID numérico da conta autorizada.');
     }
 
     return {
@@ -173,8 +171,7 @@ class R2ObjectStore {
         const url = this.endpoint + canonicalUri + (canonicalQuery ? '?' + canonicalQuery : '');
         const payload = body ? Buffer.from(body) : Buffer.alloc(0);
         const payloadHash = sha256(payload);
-        const now = new Date();
-        const amzDate = now.toISOString().replace(/[:-]|\\.\\d{3}/g, '');
+        const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
         const dateStamp = amzDate.slice(0, 8);
         const headers = {
             host: new URL(this.endpoint).host,
@@ -183,7 +180,7 @@ class R2ObjectStore {
         };
         const headerNames = Object.keys(headers).sort();
         const canonicalHeaders = headerNames.map(function (name) {
-            return name + ':' + String(headers[name]).trim() + '\\n';
+            return name + ':' + String(headers[name]).trim() + '\n';
         }).join('');
         const signedHeaders = headerNames.join(';');
         const canonicalRequest = [
@@ -193,15 +190,14 @@ class R2ObjectStore {
             canonicalHeaders,
             signedHeaders,
             payloadHash
-        ].join('\\n');
-
+        ].join('\n');
         const scope = dateStamp + '/' + this.region + '/s3/aws4_request';
         const stringToSign = [
             'AWS4-HMAC-SHA256',
             amzDate,
             scope,
             sha256(Buffer.from(canonicalRequest, 'utf8'))
-        ].join('\\n');
+        ].join('\n');
         const dateKey = hmac(Buffer.from('AWS4' + this.secretAccessKey, 'utf8'), dateStamp);
         const regionKey = hmac(dateKey, this.region);
         const serviceKey = hmac(regionKey, 's3');
@@ -253,15 +249,11 @@ class R2ObjectStore {
     }
 
     async listObjects(prefix, continuationToken) {
-        const query = {
-            'list-type': '2',
-            prefix: prefix,
-            'max-keys': '1000'
-        };
+        const query = { 'list-type': '2', prefix: prefix, 'max-keys': '1000' };
         if (continuationToken) query['continuation-token'] = continuationToken;
         const response = await this.request('GET', '', query, null);
         const xml = await response.text();
-        const objects = Array.from(xml.matchAll(/<Contents>([\\s\\S]*?)</Contents>/g)).map(function (match) {
+        const objects = Array.from(xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)).map(function (match) {
             const block = match[1];
             return {
                 key: xmlTag(block, 'Key'),
@@ -269,7 +261,6 @@ class R2ObjectStore {
                 size: Number(xmlTag(block, 'Size')) || 0
             };
         }).filter(function (item) { return item.key; });
-
         return {
             objects: objects,
             truncated: xmlTag(xml, 'IsTruncated') === 'true',
@@ -280,19 +271,16 @@ class R2ObjectStore {
 
 function formatDateParts(date) {
     const iso = date.toISOString();
-    return {
-        year: iso.slice(0, 4),
-        month: iso.slice(5, 7),
-        day: iso.slice(8, 10)
-    };
+    return { year: iso.slice(0, 4), month: iso.slice(5, 7), day: iso.slice(8, 10) };
 }
 
 function makeEventObjectKey(guildId, channelId, authorId, messageId, eventType, capturedAt) {
     const date = formatDateParts(new Date(capturedAt));
     const safeType = String(eventType).replace(/[^a-z_]/gi, '');
+    const nonce = randomBytes(4).toString('hex');
     return 'events/' + guildId + '/' + date.year + '/' + date.month + '/' + date.day +
         '/' + (channelId || 'unknown') + '/' + (authorId || 'unknown') +
-        '/' + Date.parse(capturedAt) + '_' + messageId + '_' + safeType + '.bin';
+        '/' + Date.parse(capturedAt) + '_' + messageId + '_' + safeType + '_' + nonce + '.bin';
 }
 
 export function buildMessageArchiveObjectKey(input) {
@@ -311,9 +299,9 @@ export function buildMessageArchiveNoticeEmbed() {
         .setColor(0x8b1a1a)
         .setTitle('✦ AVISO DE ARQUIVAMENTO DE MENSAGENS')
         .setDescription(
-            'Para fins de segurança, prevenção de abuso e moderação, mensagens enviadas nos canais da Allied aos quais a Kaori tem acesso poderão ser arquivadas por até **90 dias**.\\n\\n' +
-            'O registro inclui mensagens de pessoas, bots e webhooks, além de versões anteriores e posteriores de mensagens editadas e conteúdo disponível no momento de exclusões. Anexos acessíveis também poderão ser copiados para o arquivo, respeitando o limite técnico informado pela administração.\\n\\n' +
-            'Os registros ficam em armazenamento privado, criptografados antes do envio, e o acesso ao arquivo é restrito ao responsável designado pelo sistema. O arquivo não é publicado em canais de logs do Discord.\\n\\n' +
+            'Para fins de segurança, prevenção de abuso e moderação, mensagens enviadas nos canais da Allied aos quais a Kaori tem acesso poderão ser arquivadas por até **90 dias**.\n\n' +
+            'O registro inclui mensagens de pessoas, bots e webhooks, além de versões anteriores e posteriores de mensagens editadas e conteúdo disponível no momento de exclusões. Anexos acessíveis também poderão ser copiados para o arquivo, respeitando o limite técnico informado pela administração.\n\n' +
+            'Os registros ficam em armazenamento privado, criptografados antes do envio, e o acesso ao arquivo é restrito ao responsável designado pelo sistema. O arquivo não é publicado em canais de logs do Discord.\n\n' +
             'Não envie senhas, dados financeiros ou outras informações altamente sensíveis no servidor. Em caso de dúvidas sobre o tratamento dos registros, procure a administração da Allied.'
         )
         .addFields(
@@ -336,8 +324,7 @@ function getMessageIdentity(message) {
 
 function safeJson(value) {
     try {
-        if (value && typeof value.toJSON === 'function') return value.toJSON();
-        return value ?? null;
+        return value && typeof value.toJSON === 'function' ? value.toJSON() : value ?? null;
     } catch {
         return null;
     }
@@ -352,6 +339,32 @@ function snapshotHasContent(snapshot) {
     );
 }
 
+async function readResponseLimited(response, maxBytes) {
+    const declaredLength = Number(response.headers.get('content-length')) || 0;
+    if (declaredLength > maxBytes) throw new Error('attachment_over_limit');
+
+    const reader = response.body?.getReader?.();
+    if (!reader) {
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (buffer.length > maxBytes) throw new Error('attachment_over_limit');
+        return buffer;
+    }
+
+    const chunks = [];
+    let total = 0;
+    while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        total += part.value.byteLength;
+        if (total > maxBytes) {
+            await reader.cancel().catch(function () {});
+            throw new Error('attachment_over_limit');
+        }
+        chunks.push(Buffer.from(part.value));
+    }
+    return Buffer.concat(chunks, total);
+}
+
 async function copyAttachment(attachment, identity, capturedAt, currentTotal) {
     const metadata = {
         id: attachment.id || null,
@@ -359,14 +372,13 @@ async function copyAttachment(attachment, identity, capturedAt, currentTotal) {
         description: attachment.description || null,
         contentType: attachment.contentType || attachment.content_type || null,
         size: Number(attachment.size) || 0,
-        url: attachment.url || null,
-        proxyUrl: attachment.proxyURL || attachment.proxy_url || null,
+        url: null,
         archived: false,
         storageKey: null,
         skippedReason: null
     };
-
-    if (!metadata.url) {
+    const sourceUrl = attachment.url || null;
+    if (!sourceUrl) {
         metadata.skippedReason = 'url_unavailable';
         return { metadata: metadata, bytes: 0 };
     }
@@ -381,16 +393,12 @@ async function copyAttachment(attachment, identity, capturedAt, currentTotal) {
 
     let url;
     try {
-        url = new URL(metadata.url);
+        url = new URL(sourceUrl);
     } catch {
         metadata.skippedReason = 'invalid_url';
         return { metadata: metadata, bytes: 0 };
     }
-
-    if (
-        url.protocol !== 'https:' ||
-        !['cdn.discordapp.com', 'media.discordapp.net'].includes(url.hostname)
-    ) {
+    if (url.protocol !== 'https:' || !['cdn.discordapp.com', 'media.discordapp.net'].includes(url.hostname)) {
         metadata.skippedReason = 'untrusted_attachment_host';
         return { metadata: metadata, bytes: 0 };
     }
@@ -398,17 +406,10 @@ async function copyAttachment(attachment, identity, capturedAt, currentTotal) {
     try {
         const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
         if (!response.ok) throw new Error('download_http_' + response.status);
-        const declaredLength = Number(response.headers.get('content-length')) || 0;
-        if (declaredLength > MAX_ATTACHMENT_BYTES || currentTotal + declaredLength > MAX_MESSAGE_ATTACHMENT_BYTES) {
-            metadata.skippedReason = 'attachment_over_limit';
-            return { metadata: metadata, bytes: 0 };
-        }
-        const bytes = Buffer.from(await response.arrayBuffer());
-        if (bytes.length > MAX_ATTACHMENT_BYTES || currentTotal + bytes.length > MAX_MESSAGE_ATTACHMENT_BYTES) {
-            metadata.skippedReason = 'attachment_over_limit';
-            return { metadata: metadata, bytes: 0 };
-        }
-
+        const bytes = await readResponseLimited(response, Math.min(
+            MAX_ATTACHMENT_BYTES,
+            MAX_MESSAGE_ATTACHMENT_BYTES - currentTotal
+        ));
         const date = formatDateParts(new Date(capturedAt));
         const safeName = String(metadata.filename || metadata.id || 'attachment')
             .replace(/[^a-z0-9._-]/gi, '_').slice(0, 80);
@@ -418,8 +419,6 @@ async function copyAttachment(attachment, identity, capturedAt, currentTotal) {
         await runtime.store.putObject(storageKey, encryptArchiveBuffer(bytes, runtime.encryptionKey));
         metadata.archived = true;
         metadata.storageKey = storageKey;
-        metadata.url = null;
-        metadata.proxyUrl = null;
         return { metadata: metadata, bytes: bytes.length };
     } catch (error) {
         metadata.skippedReason = String(error.message || 'download_failed').slice(0, 100);
@@ -443,8 +442,7 @@ async function makeSnapshot(message, options) {
                     description: attachment.description || null,
                     contentType: attachment.contentType || attachment.content_type || null,
                     size: Number(attachment.size) || 0,
-                    url: attachment.url || null,
-                    proxyUrl: attachment.proxyURL || attachment.proxy_url || null,
+                    url: null,
                     archived: false,
                     storageKey: null,
                     skippedReason: 'not_copied_for_this_event'
@@ -473,9 +471,6 @@ async function makeSnapshot(message, options) {
             system: author.system === true
         } : null,
         webhookId: message.webhookId || null,
-        memberRoleIds: message.member?.roles?.cache
-            ? Array.from(message.member.roles.cache.keys())
-            : [],
         content: typeof message.content === 'string' ? message.content : null,
         embeds: Array.from(message.embeds?.values?.() || []).map(safeJson),
         components: Array.from(message.components || []).map(safeJson),
@@ -508,13 +503,9 @@ async function writeJsonObject(key, value) {
     await runtime.store.putObject(key, encodeJson(value, runtime.encryptionKey));
 }
 
-async function readRecord(key) {
-    return readJsonObject(key);
-}
-
 async function updateMessageIndex(identity, recordKey, eventType, capturedAt) {
     const indexKey = 'message-index/' + identity.guildId + '/' + identity.messageId + '.bin';
-    const current = await readJsonObject(indexKey).catch(function () { return null; });
+    const current = await readJsonObject(indexKey);
     const eventKeys = Array.isArray(current?.eventKeys) ? current.eventKeys.slice(-MAX_HISTORY_EVENTS + 1) : [];
     eventKeys.push(recordKey);
     await writeJsonObject(indexKey, {
@@ -534,8 +525,8 @@ async function getLatestSnapshot(identity) {
     if (!identity.guildId || !identity.messageId) return null;
     const index = await readJsonObject('message-index/' + identity.guildId + '/' + identity.messageId + '.bin');
     if (!index?.latestRecordKey) return null;
-    const record = await readRecord(index.latestRecordKey);
-    return record?.snapshot || record?.afterSnapshot || record?.beforeSnapshot || null;
+    const record = await readJsonObject(index.latestRecordKey);
+    return record?.snapshot || record?.beforeSnapshot || null;
 }
 
 async function persistMessageEvent(identity, eventType, snapshot, options) {
@@ -605,7 +596,7 @@ async function reportArchiveFailure(error, context) {
 
 function validGuildMessage(message) {
     const guildId = message?.guildId || message?.guild?.id;
-    return Boolean(runtime.enabled && runtime.store && runtime.encryptionKey && guildId && guildId === runtime.guildId);
+    return Boolean(runtime.enabled && runtime.store && runtime.encryptionKey && guildId === runtime.guildId);
 }
 
 export async function handleArchiveMessageCreate(message) {
@@ -650,9 +641,7 @@ export async function handleArchiveMessageDelete(message, bulk) {
     return withMessageLock(identity.messageId, async function () {
         try {
             let snapshot = await makeSnapshot(message, { copyAttachments: false });
-            if (!snapshotHasContent(snapshot)) {
-                snapshot = await getLatestSnapshot(identity);
-            }
+            if (!snapshotHasContent(snapshot)) snapshot = await getLatestSnapshot(identity);
             await persistMessageEvent(identity, bulk ? 'bulk_deleted' : 'deleted', snapshot, {
                 authorId: identity.authorId || snapshot?.author?.id,
                 channelId: identity.channelId || snapshot?.channelId
@@ -703,23 +692,15 @@ export async function initMessageArchive(client) {
     runtime.config = null;
     runtime.store = null;
     runtime.encryptionKey = null;
-
     try {
         const environment = getStorageEnvironment();
-        if (!environment.ready) {
-            return { ready: false, enabled: false, missing: environment.missing };
-        }
+        if (!environment.ready) return { ready: false, enabled: false, missing: environment.missing };
         runtime.store = new R2ObjectStore(environment);
         runtime.encryptionKey = environment.encryptionKey;
         runtime.ownerId = environment.ownerId;
         runtime.config = await readArchiveConfig();
         runtime.enabled = runtime.config.enabled === true;
-        return {
-            ready: true,
-            enabled: runtime.enabled,
-            retentionDays: RETENTION_DAYS,
-            encrypted: true
-        };
+        return { ready: true, enabled: runtime.enabled, retentionDays: RETENTION_DAYS, encrypted: true };
     } catch (error) {
         runtime.store = null;
         runtime.encryptionKey = null;
@@ -739,7 +720,12 @@ export function isMessageArchiveOwner(userId, guildId) {
 }
 
 export function getMessageArchiveStatus() {
-    const environment = getStorageEnvironment();
+    let environment;
+    try {
+        environment = getStorageEnvironment();
+    } catch (error) {
+        environment = { ready: false, missing: [error.message] };
+    }
     return {
         ready: environment.ready && Boolean(runtime.store),
         enabled: runtime.enabled,
@@ -765,7 +751,6 @@ export async function publishMessageArchiveNotice(channel) {
     if (!permissions?.has('ViewChannel') || !permissions?.has('SendMessages') || !permissions?.has('EmbedLinks')) {
         throw new Error('A Kaori precisa de Ver Canal, Enviar Mensagens e Inserir Links no canal escolhido.');
     }
-
     const message = await channel.send({
         embeds: [buildMessageArchiveNoticeEmbed()],
         allowedMentions: { parse: [] }
@@ -791,9 +776,7 @@ export async function setMessageArchiveEnabled(enabled, guild) {
             throw new Error('Publique primeiro o aviso público com /arquivo aviso canal:#regras.');
         }
         const channel = await guild.channels.fetch(current.noticeChannelId).catch(function () { return null; });
-        if (!channel?.messages?.fetch) {
-            throw new Error('O canal do aviso não está mais acessível. Publique o aviso novamente.');
-        }
+        if (!channel?.messages?.fetch) throw new Error('O canal do aviso não está mais acessível. Publique o aviso novamente.');
         const notice = await channel.messages.fetch(current.noticeMessageId).catch(function () { return null; });
         if (!notice) throw new Error('O aviso público não foi encontrado. Publique-o novamente antes de ativar o arquivo.');
     }
@@ -814,7 +797,6 @@ function getRecentDatePrefixes(guildId, days) {
 
 async function collectArchiveObjects(prefixes, maxObjects) {
     const objects = [];
-    let truncated = false;
     for (const prefix of prefixes) {
         let continuationToken = null;
         do {
@@ -822,14 +804,13 @@ async function collectArchiveObjects(prefixes, maxObjects) {
             for (const object of page.objects) {
                 objects.push(object);
                 if (objects.length >= maxObjects) {
-                    truncated = true;
-                    return { objects: objects, truncated: truncated };
+                    return { objects: objects, truncated: true };
                 }
             }
             continuationToken = page.truncated ? page.nextToken : null;
         } while (continuationToken);
     }
-    return { objects: objects, truncated: truncated };
+    return { objects: objects, truncated: false };
 }
 
 export async function searchMessageArchive(options) {
@@ -841,14 +822,13 @@ export async function searchMessageArchive(options) {
     const term = String(options.term || '').trim().toLocaleLowerCase('pt-BR');
     const eventType = options.eventType || 'all';
     const prefixes = getRecentDatePrefixes(runtime.guildId, days).map(function (prefix) {
-        if (authorId) return prefix + (channelId ? channelId + '/' + authorId + '/' : '');
-        return prefix + (channelId ? channelId + '/' : '');
+        if (channelId) return prefix + channelId + '/';
+        return prefix;
     });
     const collected = await collectArchiveObjects(prefixes, MAX_SEARCH_OBJECTS);
     const candidates = collected.objects.filter(function (object) {
-        if (authorId && !object.key.includes('/' + (channelId ? channelId + '/' : '') + authorId + '/')) return false;
-        if (channelId && !object.key.includes('/' + channelId + '/')) return false;
-        if (eventType !== 'all' && !object.key.endsWith('_' + eventType + '.bin')) return false;
+        if (authorId && !object.key.includes('/' + authorId + '/')) return false;
+        if (eventType !== 'all' && !object.key.includes('_' + eventType + '_')) return false;
         return true;
     });
     candidates.sort(function (a, b) {
@@ -861,7 +841,7 @@ export async function searchMessageArchive(options) {
         scanned++;
         let record;
         try {
-            record = await readRecord(object.key);
+            record = await readJsonObject(object.key);
         } catch (error) {
             console.error('[MessageArchive] falha ao ler registro:', error.message);
             continue;
@@ -873,29 +853,23 @@ export async function searchMessageArchive(options) {
             record.snapshot?.author?.username,
             record.snapshot?.author?.globalName,
             record.snapshot?.channelName
-        ].filter(Boolean).join('\\n').toLocaleLowerCase('pt-BR');
+        ].filter(Boolean).join('\n').toLocaleLowerCase('pt-BR');
         if (term && !searchable.includes(term)) continue;
         records.push({ key: object.key, lastModified: object.lastModified, record: record });
         if (records.length >= limit) break;
     }
-
-    return {
-        records: records,
-        scanned: scanned,
-        truncated: collected.truncated,
-        scanLimit: MAX_SEARCH_OBJECTS
-    };
+    return { records: records, scanned: scanned, truncated: collected.truncated, scanLimit: MAX_SEARCH_OBJECTS };
 }
 
 export async function getMessageArchiveHistory(messageId) {
     if (!runtime.store || !runtime.encryptionKey) throw new Error('O armazenamento privado não está disponível.');
     const cleanId = String(messageId || '').trim();
-    if (!/^\\d{17,20}$/.test(cleanId)) throw new Error('Informe um ID válido de mensagem do Discord.');
+    if (!/^\d{17,20}$/.test(cleanId)) throw new Error('Informe um ID válido de mensagem do Discord.');
     const index = await readJsonObject('message-index/' + runtime.guildId + '/' + cleanId + '.bin');
     if (!index || !Array.isArray(index.eventKeys)) return [];
     const history = [];
     for (const key of index.eventKeys.slice(-20)) {
-        const record = await readRecord(key).catch(function () { return null; });
+        const record = await readJsonObject(key).catch(function () { return null; });
         if (record) history.push({ key: key, record: record });
     }
     return history;
