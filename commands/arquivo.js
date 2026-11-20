@@ -10,7 +10,8 @@ import {
     publishMessageArchiveNotice,
     setMessageArchiveEnabled,
     searchMessageArchive,
-    getMessageArchiveHistory
+    getMessageArchiveHistory,
+    getArchivedAttachment
 } from '../systems/messageArchive.js';
 
 const EVENT_LABELS = {
@@ -31,7 +32,7 @@ const TYPE_CHOICES = [
 export const messageArchiveCommand = new SlashCommandBuilder()
     .setName('arquivo')
     .setDescription('Acessa o arquivo privado e criptografado de mensagens da Allied')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((sub) => sub
         .setName('status')
         .setDescription('Mostra a disponibilidade e a configuração do arquivo')
@@ -141,10 +142,16 @@ function safeTimestamp(value) {
 function eventContent(record) {
     const current = record.snapshot?.content;
     const before = record.beforeSnapshot?.content;
-    if (record.eventType === 'edited') {
-        return '**Antes:** ' + truncate(before, 350) + '\n**Depois:** ' + truncate(current, 350);
-    }
-    return truncate(current ?? before, 750);
+    const body = record.eventType === 'edited'
+        ? '**Antes:** ' + truncate(before, 350) + '\n**Depois:** ' + truncate(current, 350)
+        : truncate(current ?? before, 750);
+    const attachments = record.snapshot?.attachments || record.beforeSnapshot?.attachments || [];
+    if (!attachments.length) return body;
+    const summary = attachments.slice(0, 5).map((item) => {
+        const state = item.archived ? 'salvo no arquivo' : 'não copiado: ' + (item.skippedReason || 'indisponível');
+        return (item.filename || 'anexo') + ' (' + state + ')';
+    }).join('; ');
+    return body + '\n**Anexos:** ' + truncate(summary, 260);
 }
 
 function buildSearchEmbed(result, options) {
@@ -287,8 +294,27 @@ export async function executeMessageArchive(interaction) {
             await interaction.deferReply({ ephemeral: true });
             const messageId = interaction.options.getString('id', true);
             const history = await getMessageArchiveHistory(messageId);
+            const latestRecord = history.at(-1)?.record;
+            const archivedAttachments = (latestRecord?.snapshot?.attachments || [])
+                .filter((item) => item.archived && item.storageKey)
+                .slice(0, 10);
+            const files = [];
+            let totalBytes = 0;
+            for (const item of archivedAttachments) {
+                const expectedSize = Number(item.size) || 0;
+                if (expectedSize > 10 * 1024 * 1024 || totalBytes + expectedSize > 20 * 1024 * 1024) continue;
+                try {
+                    const attachment = await getArchivedAttachment(item.storageKey);
+                    if (totalBytes + attachment.length > 20 * 1024 * 1024) continue;
+                    totalBytes += attachment.length;
+                    files.push({ attachment: attachment, name: truncate(item.filename || 'anexo-' + (files.length + 1), 100) });
+                } catch (error) {
+                    console.error('[MessageArchiveCommand] falha ao recuperar anexo:', error.message);
+                }
+            }
             return interaction.editReply({
                 embeds: [buildHistoryEmbed(history, messageId)],
+                files: files,
                 allowedMentions: { parse: [] }
             });
         }
