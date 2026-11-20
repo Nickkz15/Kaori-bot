@@ -8,6 +8,7 @@ on:
     branches:
       - feature/admission-acceptance-panel
       - feature/division-recruitment-panels
+      - feature/private-message-archive-r2
   workflow_dispatch:
 
 permissions:
@@ -39,6 +40,8 @@ jobs:
           node --check systems/alliedDivisionTickets.js
           node --check commands/allied-divisions.js
           node --check index.js
+          node --check systems/messageArchive.js
+          node --check commands/arquivo.js
 
       - name: Package full project
         run: |

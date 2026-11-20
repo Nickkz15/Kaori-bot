@@ -64,6 +64,14 @@ import { confessbanlistCommand, executeConfessbanlist } from './commands/confess
 import { logschannelCommand, executeLogschannel } from './commands/logschannel.js';
 import { poolCommand, executePool } from './commands/pool.js';
 import { configCommand, executeConfig } from './commands/config.js';
+import { messageArchiveCommand, executeMessageArchive } from './commands/arquivo.js';
+import {
+    initMessageArchive,
+    handleArchiveMessageCreate,
+    handleArchiveMessageUpdate,
+    handleArchiveMessageDelete,
+    handleArchiveMessageDeleteBulk
+} from './systems/messageArchive.js';
 import { ensureConfessSchema } from './systems/confessDb.js';
 import { handlePollVote, handlePollModal, buildPollModal } from './systems/confessPoll.js';
 
@@ -205,7 +213,8 @@ const COMMAND_HANDLERS = {
     'allied-invites': executeAlliedInvites,
     'allied-admission': executeAlliedAdmission,
     'allied-embed': executeAlliedEmbed,
-    'allied-divisions': executeAlliedDivisions
+    'allied-divisions': executeAlliedDivisions,
+    arquivo: executeMessageArchive
 };
 
 client.once(Events.ClientReady, async (bot) => {
@@ -225,7 +234,16 @@ client.once(Events.ClientReady, async (bot) => {
         console.log('🏯 Allied Welcomer + InviteLogger prontos.');
     } catch (err) {
         console.error('❌ Falha ao inicializar PostgreSQL:', err.message);
-        process.exit(1);
+        console.error('⚠️ A Kaori continuará online, mas os sistemas que dependem do PostgreSQL podem ficar indisponíveis.');
+    }
+
+    try {
+        const archive = await initMessageArchive(bot);
+        console.log(archive.ready
+            ? (archive.enabled ? '🔐 Arquivo privado de mensagens ativo no R2.' : '🔐 Arquivo privado pronto, aguardando ativação.')
+            : '⚠️ Arquivo privado indisponível. Variáveis pendentes: ' + (archive.missing || []).join(', '));
+    } catch (error) {
+        console.error('❌ Falha ao inicializar arquivo privado:', error.message);
     }
 
     const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -273,7 +291,8 @@ client.once(Events.ClientReady, async (bot) => {
                     alliedInvitesCommand.toJSON(),
                     alliedAdmissionCommand.toJSON(),
                     alliedEmbedCommand.toJSON(),
-                    alliedDivisionsCommand.toJSON()
+                    alliedDivisionsCommand.toJSON(),
+                    messageArchiveCommand.toJSON()
                 ]
             }
         );
@@ -509,6 +528,30 @@ client.on(Events.UserUpdate, async (oldUser, newUser) => {
     if (!member || newUser.bot) return;
 
     await verificarMembro(member, newUser);
+});
+
+client.on(Events.MessageCreate, (message) => {
+    handleArchiveMessageCreate(message).catch((error) => {
+        console.error('[MessageArchive] messageCreate:', error.message);
+    });
+});
+
+client.on(Events.MessageUpdate, (before, after) => {
+    handleArchiveMessageUpdate(before, after).catch((error) => {
+        console.error('[MessageArchive] messageUpdate:', error.message);
+    });
+});
+
+client.on(Events.MessageDelete, (message) => {
+    handleArchiveMessageDelete(message, false).catch((error) => {
+        console.error('[MessageArchive] messageDelete:', error.message);
+    });
+});
+
+client.on('messageDeleteBulk', (messages) => {
+    handleArchiveMessageDeleteBulk(messages).catch((error) => {
+        console.error('[MessageArchive] messageDeleteBulk:', error.message);
+    });
 });
 
 client.on(Events.MessageCreate, async (message) => {
